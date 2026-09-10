@@ -21,6 +21,7 @@
     "order_id": "ORD-1003",
     "customer_id": "CUST-003",
     "status": "delivered",
+    "delivered_at": "2026-09-08",
     "carrier": "FedEx",
     "tracking_number": "784512349876",
     "estimated_delivery": "2026-09-08",
