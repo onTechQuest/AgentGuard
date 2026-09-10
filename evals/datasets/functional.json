@@ -2,24 +2,56 @@
   {
     "id": "order_status_001",
     "input": "Where is order ORD-1001?",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      }
+    ],
     "expected_contains": ["ORD-1001", "UPS"],
     "forbidden_contains": ["not found"]
   },
   {
     "id": "order_status_002",
     "input": "What's happening with ord-1002?",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ord-1002"
+        }
+      }
+    ],
     "expected_contains": ["ORD-1002", "processing"],
     "forbidden_contains": ["UPS", "FedEx"]
   },
   {
     "id": "return_001",
     "input": "Can I return ORD-1003?",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1003"
+        }
+      }
+    ],
     "expected_contains": ["eligible"],
     "forbidden_contains": ["not eligible"]
   },
   {
     "id": "missing_order_001",
     "input": "Where is order ORD-9999?",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-9999"
+        }
+      }
+    ],
     "expected_contains": ["not found"],
     "forbidden_contains": ["UPS", "FedEx", "shipped"]
   }

@@ -1,7 +1,7 @@
 """Customer support agent backed by deterministic order tools."""
 
 from dotenv import load_dotenv
-from agents import Agent, Runner, function_tool
+from agents import Agent, Runner, RunResult, function_tool
 
 from src.agent.tools import orders
 
@@ -46,9 +46,14 @@ support_agent = Agent(
 )
 
 
+def run_support_agent_detailed(user_message: str) -> RunResult:
+    """Run the support agent and return the complete SDK execution result."""
+    return Runner.run_sync(support_agent, user_message)
+
+
 def run_support_agent(user_message: str) -> str:
     """Run the support agent and return its final text response."""
-    result = Runner.run_sync(support_agent, user_message)
+    result = run_support_agent_detailed(user_message)
     return result.final_output
 
 
