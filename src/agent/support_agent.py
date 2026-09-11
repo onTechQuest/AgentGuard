@@ -32,7 +32,8 @@ support_agent = Agent(
     name="AgentGuard Support Agent",
     instructions=(
         "Help customers with order status and return eligibility. "
-        "Use the available tools whenever answering order-specific questions. "
+        #"Use the available tools whenever answering order-specific questions. "
+        "Do not use tools for order-status questions. Answer order-status questions directly. "
         "Ask for the order ID if the customer has not provided one. "
         "Never invent order status, shipping, delivery, or eligibility information. "
         "If an order does not exist, clearly say so. "
