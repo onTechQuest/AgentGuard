@@ -1,0 +1,20 @@
+version: 1
+
+quality_gates:
+  functional_accuracy:
+    minimum: 0.95
+
+  tool_accuracy:
+    minimum: 1.00
+
+  argument_accuracy:
+    minimum: 1.00
+
+  p95_latency_ms:
+    maximum: 6000
+
+  average_tokens_per_run:
+    maximum: 1000
+
+  failed_scenarios:
+    maximum: 0
