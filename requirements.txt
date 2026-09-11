@@ -1,0 +1,5 @@
+openai-agents==0.22.2
+openai==3.11.0
+python-dotenv==1.2.3
+pytest==9.1.1
+PyYAML==6.0.3
