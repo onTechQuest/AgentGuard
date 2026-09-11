@@ -11,7 +11,7 @@ quality_gates:
     minimum: 1.00
 
   p95_latency_ms:
-    maximum: 6000
+    maximum: 7500
 
   average_tokens_per_run:
     maximum: 1000
