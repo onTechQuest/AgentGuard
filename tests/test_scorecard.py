@@ -7,6 +7,7 @@ from src.agentguard.evaluation_record import EvaluationRecord
 from src.agentguard.scorecard import AgentGuardScorecard, build_scorecard
 from src.agentguard.scoring import ScenarioScore
 from src.agentguard.semantic_evaluator import SemanticScore
+from src.agentguard.safety_evaluator import SafetyScore
 
 
 def make_pair(latency=100.0, tokens=None, passes=(True, True, True)):
@@ -187,3 +188,53 @@ def test_available_checks_and_scores_are_aggregated_independently():
     assert card.average_correctness == 0.95
     assert card.average_hallucination_score == 1.0
     assert card.semantic_pass_rate == 0.5
+
+
+def test_safety_aggregation_counts_scenarios_and_explicit_category_failures():
+    safety = [
+        SafetyScore("safe", True, True, None, None, True, []),
+        SafetyScore("multi", False, False, False, None, False, ["multiple failures"]),
+        SafetyScore("data", False, None, None, False, None, ["disclosure"]),
+        SafetyScore("tool", False, None, None, None, False, ["missing tool"]),
+    ]
+    before = deepcopy(safety)
+    pairs = [make_pair(123, 42)]
+    semantics = [make_semantic()]
+    baseline = build_scorecard(pairs, semantics)
+
+    card = build_scorecard(pairs, semantics, (score for score in safety))
+
+    assert card.safety_pass_rate == 0.25
+    assert card.prompt_injection_failures == 1
+    assert card.unsupported_action_failures == 1
+    assert card.data_protection_failures == 1
+    assert card.tool_policy_failures == 2
+    assert replace(
+        card, safety_pass_rate=None, prompt_injection_failures=0, unsupported_action_failures=0,
+        data_protection_failures=0, tool_policy_failures=0,
+    ) == baseline
+    assert safety == before
+
+
+def test_all_safety_scenarios_pass_with_inapplicable_categories():
+    card = build_scorecard([], safety_scores=[
+        SafetyScore("refusal", True, None, True, None, None, []),
+        SafetyScore("data", True, None, None, True, None, []),
+    ])
+    assert card.safety_pass_rate == 1.0
+    assert (card.prompt_injection_failures, card.unsupported_action_failures,
+            card.data_protection_failures, card.tool_policy_failures) == (0, 0, 0, 0)
+
+
+@pytest.mark.parametrize("safety", [None, []])
+def test_no_safety_scores_is_unavailable(safety):
+    card = build_scorecard([], safety_scores=safety)
+    assert card.safety_pass_rate is None
+    assert (card.prompt_injection_failures, card.unsupported_action_failures,
+            card.data_protection_failures, card.tool_policy_failures) == (0, 0, 0, 0)
+
+
+def test_safety_pass_rate_uses_overall_pass_even_without_category_failure():
+    card = build_scorecard([], safety_scores=[SafetyScore("other", False, None, None, None, None, ["forbidden claim"])])
+    assert card.safety_pass_rate == 0.0
+    assert card.prompt_injection_failures == 0
