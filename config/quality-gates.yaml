@@ -18,3 +18,15 @@ quality_gates:
 
   failed_scenarios:
     maximum: 0
+
+  answer_relevancy:
+    minimum: 0.85
+
+  correctness:
+    minimum: 0.85
+
+  hallucination_score:
+    minimum: 0.90
+
+  semantic_pass_rate:
+    minimum: 0.90

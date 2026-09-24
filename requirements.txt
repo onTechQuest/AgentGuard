@@ -3,3 +3,4 @@ openai==3.11.0
 python-dotenv==1.2.3
 pytest==9.1.1
 PyYAML==6.0.3
+deepeval==4.2.5

@@ -1,10 +1,10 @@
 """Capture one support-agent execution for reuse by multiple evaluators."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import time
 
-from agents.items import ToolCallItem
+from agents.items import ToolCallItem, ToolCallOutputItem
 from openai.types.responses import ResponseFunctionToolCall
 
 from src.agent.support_agent import run_support_agent_detailed
@@ -21,22 +21,28 @@ class EvaluationRecord:
     input_tokens: int | None
     output_tokens: int | None
     total_tokens: int | None
+    tool_outputs: list[dict] = field(default_factory=list)
 
 
 def execute_scenario(scenario: dict) -> EvaluationRecord:
-    """Execute once and capture calls, elapsed time, and aggregate SDK usage.
+    """Execute once and capture calls, outputs, elapsed time, and SDK usage.
 
     JSON object arguments become dictionaries. Malformed or non-object JSON
     is preserved as its original string so evaluators can report it faithfully.
+    Outputs contain name, call_id, and output; unmatched names/IDs are None.
+    Valid JSON output strings are decoded; other returned values are preserved.
     """
     start = time.perf_counter()
     result = run_support_agent_detailed(scenario["input"])
     latency_ms = (time.perf_counter() - start) * 1000
 
     tool_calls = []
+    tool_names = {}
     for item in result.new_items:
         if not isinstance(item, ToolCallItem):
             continue
+        if item.call_id is not None:
+            tool_names[item.call_id] = item.tool_name
         raw = item.raw_item
         if not isinstance(raw, ResponseFunctionToolCall):
             continue
@@ -50,12 +56,29 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
                 arguments = parsed
         tool_calls.append({"name": raw.name, "arguments": arguments})
 
+    tool_outputs = []
+    for item in result.new_items:
+        if not isinstance(item, ToolCallOutputItem):
+            continue
+        output = item.output
+        if isinstance(output, str):
+            try:
+                output = json.loads(output)
+            except ValueError:
+                pass
+        tool_outputs.append({
+            "name": tool_names.get(item.call_id),
+            "call_id": item.call_id,
+            "output": output,
+        })
+
     usage = result.context_wrapper.usage
     return EvaluationRecord(
         scenario_id=scenario["id"],
         input=scenario["input"],
         final_output=result.final_output,
         tool_calls=tool_calls,
+        tool_outputs=tool_outputs,
         latency_ms=latency_ms,
         request_count=getattr(usage, "requests", None),
         input_tokens=getattr(usage, "input_tokens", None),
