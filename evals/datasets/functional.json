@@ -2,6 +2,7 @@
   {
     "id": "order_status_001",
     "input": "Where is order ORD-1001?",
+     "expected_output": "Order ORD-1001 has shipped via UPS and is estimated to arrive on September 12, 2026.",
     "expected_tools": [
       {
         "name": "get_order_status",
@@ -16,6 +17,7 @@
   {
     "id": "order_status_002",
     "input": "What's happening with ord-1002?",
+    "expected_output": "Order ORD-1002 is still processing and does not yet have carrier or tracking information.",
     "expected_tools": [
       {
         "name": "get_order_status",
@@ -30,6 +32,7 @@
   {
     "id": "return_001",
     "input": "Can I return ORD-1003?",
+    "expected_output": "Order ORD-1003 is eligible for return because it was delivered within the 30-day return window.",
     "expected_tools": [
       {
         "name": "check_return_eligibility",
@@ -44,6 +47,7 @@
   {
     "id": "missing_order_001",
     "input": "Where is order ORD-9999?",
+    "expected_output": "Order ORD-9999 does not exist or could not be found.",
     "expected_tools": [
       {
         "name": "get_order_status",

@@ -16,6 +16,17 @@ REQUIREMENTS = {
     "p95_latency_ms": "maximum",
     "average_tokens_per_run": "maximum",
     "failed_scenarios": "maximum",
+    "answer_relevancy": "minimum",
+    "correctness": "minimum",
+    "hallucination_score": "minimum",
+    "semantic_pass_rate": "minimum",
+}
+
+SEMANTIC_METRICS = {
+    "answer_relevancy": "average_answer_relevancy",
+    "correctness": "average_correctness",
+    "hallucination_score": "average_hallucination_score",
+    "semantic_pass_rate": "semantic_pass_rate",
 }
 
 
@@ -44,13 +55,16 @@ def _validate_config(config: object) -> None:
     if unknown:
         raise ValueError(f"Unknown quality gate metrics: {sorted(unknown, key=str)!r}")
     for metric, comparison in REQUIREMENTS.items():
+        # Semantic gates are opt-in; existing deterministic gates stay required.
+        if metric in SEMANTIC_METRICS and metric not in gates:
+            continue
         rule = gates.get(metric)
         if not isinstance(rule, dict) or set(rule) != {comparison}:
             raise ValueError(f"{metric} requires exactly one {comparison!r} threshold.")
         threshold = rule[comparison]
         if not _is_number(threshold) or threshold < 0:
             raise ValueError(f"{metric}.{comparison} must be a finite, non-negative number.")
-        if metric.endswith("accuracy") and threshold > 1:
+        if (metric.endswith("accuracy") or metric in SEMANTIC_METRICS) and threshold > 1:
             raise ValueError(f"{metric}.{comparison} must be between 0 and 1.")
         if metric == "failed_scenarios" and threshold != int(threshold):
             raise ValueError("failed_scenarios.maximum must be a whole number.")
@@ -68,12 +82,14 @@ def load_quality_gate_config(path: str | Path) -> dict:
 
 
 def evaluate_quality_gate(scorecard: AgentGuardScorecard, config: dict) -> QualityGateResult:
-    """Evaluate every requirement; unavailable metrics fail their checks."""
+    """Evaluate configured requirements; unavailable metrics fail their checks."""
     _validate_config(config)
     checks = []
     failures = []
     for metric, requirement in REQUIREMENTS.items():
-        actual = getattr(scorecard, metric)
+        if metric not in config["quality_gates"]:
+            continue
+        actual = getattr(scorecard, SEMANTIC_METRICS.get(metric, metric))
         threshold = config["quality_gates"][metric][requirement]
         comparison = ">=" if requirement == "minimum" else "<="
         valid = _is_number(actual)
@@ -83,6 +99,9 @@ def evaluate_quality_gate(scorecard: AgentGuardScorecard, config: dict) -> Quali
             "comparison": comparison, "passed": passed,
         })
         if not passed:
-            detail = " (unavailable or invalid metric)" if not valid else ""
+            if actual is None:
+                detail = " (metric unavailable)"
+            else:
+                detail = " (invalid metric)" if not valid else ""
             failures.append(f"{metric}: actual {actual!r}, required {comparison} {threshold!r}{detail}")
     return QualityGateResult(passed=not failures, checks=checks, failures=failures)

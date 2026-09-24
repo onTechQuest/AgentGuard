@@ -20,6 +20,8 @@ def main() -> None:
     print(f"\nFinal output:\n{record.final_output}")
     print("\nTool calls:")
     pprint(record.tool_calls, width=100, sort_dicts=False)
+    print("\nTool outputs:")
+    pprint(record.tool_outputs, width=100, sort_dicts=False)
     print(f"\nlatency_ms: {record.latency_ms:.2f}")
     print(f"request_count: {record.request_count}")
     print(f"input_tokens: {record.input_tokens}")
