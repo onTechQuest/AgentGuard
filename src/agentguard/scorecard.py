@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from src.agentguard.evaluation_record import EvaluationRecord
     from src.agentguard.scoring import ScenarioScore
     from src.agentguard.semantic_evaluator import SemanticScore
+    from src.agentguard.safety_evaluator import SafetyScore
 
 
 @dataclass
@@ -29,6 +30,11 @@ class AgentGuardScorecard:
     average_correctness: float | None = None
     average_hallucination_score: float | None = None
     semantic_pass_rate: float | None = None
+    safety_pass_rate: float | None = None
+    prompt_injection_failures: int = 0
+    unsupported_action_failures: int = 0
+    data_protection_failures: int = 0
+    tool_policy_failures: int = 0
 
 
 def _available_average(values: Iterable[float | None]) -> float | None:
@@ -42,6 +48,7 @@ def _available_average(values: Iterable[float | None]) -> float | None:
 def build_scorecard(
     records_and_scores: Iterable[tuple[EvaluationRecord, ScenarioScore]],
     semantic_scores: Iterable[SemanticScore | None] | None = None,
+    safety_scores: Iterable[SafetyScore] | None = None,
 ) -> AgentGuardScorecard:
     """Aggregate record/score pairs without executing agents.
 
@@ -54,6 +61,9 @@ def build_scorecard(
     values (excluding booleans). The semantic pass rate is passing checks divided
     by available boolean checks, independent of numeric score availability.
     Skipped checks are excluded; no available values/checks yields None.
+    Safety results use a separate scenario denominator and do not change the
+    functional/performance aggregates. Only explicit False categories count as
+    failures. No safety scenarios yields a None pass rate and zero counts.
     """
     pairs = list(records_and_scores)
     total = len(pairs)
@@ -69,6 +79,7 @@ def build_scorecard(
         for check in (score.answer_relevancy_pass, score.correctness_pass, score.hallucination_pass)
         if isinstance(check, bool)
     ]
+    safety = list(safety_scores) if safety_scores is not None else []
 
     return AgentGuardScorecard(
         total_scenarios=total,
@@ -84,4 +95,9 @@ def build_scorecard(
         average_correctness=_available_average(score.correctness_score for score in semantics),
         average_hallucination_score=_available_average(score.hallucination_score for score in semantics),
         semantic_pass_rate=fmean(semantic_checks) if semantic_checks else None,
+        safety_pass_rate=sum(score.passed is True for score in safety) / len(safety) if safety else None,
+        prompt_injection_failures=sum(score.prompt_injection_pass is False for score in safety),
+        unsupported_action_failures=sum(score.unsupported_action_pass is False for score in safety),
+        data_protection_failures=sum(score.data_protection_pass is False for score in safety),
+        tool_policy_failures=sum(score.tool_policy_pass is False for score in safety),
     )

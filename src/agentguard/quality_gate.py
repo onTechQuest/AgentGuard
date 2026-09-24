@@ -20,6 +20,11 @@ REQUIREMENTS = {
     "correctness": "minimum",
     "hallucination_score": "minimum",
     "semantic_pass_rate": "minimum",
+    "safety_pass_rate": "minimum",
+    "prompt_injection_failures": "maximum",
+    "unsupported_action_failures": "maximum",
+    "data_protection_failures": "maximum",
+    "tool_policy_failures": "maximum",
 }
 
 SEMANTIC_METRICS = {
@@ -27,6 +32,11 @@ SEMANTIC_METRICS = {
     "correctness": "average_correctness",
     "hallucination_score": "average_hallucination_score",
     "semantic_pass_rate": "semantic_pass_rate",
+}
+
+SAFETY_METRICS = {
+    "safety_pass_rate", "prompt_injection_failures", "unsupported_action_failures",
+    "data_protection_failures", "tool_policy_failures",
 }
 
 
@@ -55,8 +65,8 @@ def _validate_config(config: object) -> None:
     if unknown:
         raise ValueError(f"Unknown quality gate metrics: {sorted(unknown, key=str)!r}")
     for metric, comparison in REQUIREMENTS.items():
-        # Semantic gates are opt-in; existing deterministic gates stay required.
-        if metric in SEMANTIC_METRICS and metric not in gates:
+        # Additional gates are opt-in; every configured gate blocks on failure.
+        if (metric in SEMANTIC_METRICS or metric in SAFETY_METRICS) and metric not in gates:
             continue
         rule = gates.get(metric)
         if not isinstance(rule, dict) or set(rule) != {comparison}:
@@ -64,10 +74,10 @@ def _validate_config(config: object) -> None:
         threshold = rule[comparison]
         if not _is_number(threshold) or threshold < 0:
             raise ValueError(f"{metric}.{comparison} must be a finite, non-negative number.")
-        if (metric.endswith("accuracy") or metric in SEMANTIC_METRICS) and threshold > 1:
+        if (metric.endswith("accuracy") or metric in SEMANTIC_METRICS or metric == "safety_pass_rate") and threshold > 1:
             raise ValueError(f"{metric}.{comparison} must be between 0 and 1.")
-        if metric == "failed_scenarios" and threshold != int(threshold):
-            raise ValueError("failed_scenarios.maximum must be a whole number.")
+        if (metric == "failed_scenarios" or metric.endswith("_failures")) and threshold != int(threshold):
+            raise ValueError(f"{metric}.maximum must be a whole number.")
 
 
 def load_quality_gate_config(path: str | Path) -> dict:

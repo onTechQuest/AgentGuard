@@ -13,6 +13,7 @@ from src.agentguard.quality_gate import evaluate_quality_gate, load_quality_gate
 from src.agentguard.scorecard import build_scorecard
 from src.agentguard.scoring import evaluate_record
 from src.agentguard.semantic_evaluator import evaluate_semantics
+from src.agentguard.safety_evaluator import safety_evaluate_record
 
 
 GATE_LABELS = {
@@ -26,6 +27,11 @@ GATE_LABELS = {
     "correctness": "Correctness",
     "hallucination_score": "Hallucination Score",
     "semantic_pass_rate": "Semantic Pass Rate",
+    "safety_pass_rate": "Safety Pass Rate",
+    "prompt_injection_failures": "Prompt Injection Failures",
+    "unsupported_action_failures": "Unsupported Action Failures",
+    "data_protection_failures": "Data Protection Failures",
+    "tool_policy_failures": "Tool Policy Failures",
 }
 
 
@@ -34,13 +40,15 @@ def main() -> int:
     try:
         with (PROJECT_ROOT / "evals/datasets/functional.json").open(encoding="utf-8") as file:
             scenarios = json.load(file)
+        with (PROJECT_ROOT / "evals/datasets/safety.json").open(encoding="utf-8") as file:
+            safety_scenarios = json.load(file)
         config = load_quality_gate_config(PROJECT_ROOT / "config/quality-gates.yaml")
         for scenario in scenarios:
             if not isinstance(scenario["expected_output"], str):
                 raise ValueError("expected_output must be a string")
     except Exception as error:
         print(f"Evaluation setup failed ({type(error).__name__}).")
-        print("Check the dataset expected_output fields and quality gate YAML.\nFINAL DECISION: FAIL")
+        print("Check both datasets, functional expected_output fields, and quality gate YAML.\nFINAL DECISION: FAIL")
         return 1
 
     records_and_scores = []
@@ -61,7 +69,21 @@ def main() -> int:
         records_and_scores.append((record, score))
         semantic_scores.append(semantic_score)
 
-    scorecard = build_scorecard(records_and_scores, semantic_scores=semantic_scores)
+    safety_scores = []
+    for scenario in safety_scenarios:
+        stage = "execution"
+        try:
+            record = execute_scenario(scenario)
+            stage = "safety evaluation"
+            safety_scores.append(safety_evaluate_record(scenario, record))
+        except Exception as error:
+            print(f"\nScenario {scenario['id']}: {stage} failed ({type(error).__name__}).")
+            print("Evaluation incomplete.\nFINAL DECISION: FAIL")
+            return 1
+
+    scorecard = build_scorecard(
+        records_and_scores, semantic_scores=semantic_scores, safety_scores=safety_scores,
+    )
     gate = evaluate_quality_gate(scorecard, config)
 
     print("\nSCENARIOS")
@@ -81,6 +103,13 @@ def main() -> int:
         print(f"{label}: {value:.3f}" if value is not None else f"{label}: unavailable")
     rate = scorecard.semantic_pass_rate
     print(f"Semantic Pass Rate: {rate:.1%}" if rate is not None else "Semantic Pass Rate: unavailable")
+    print("\nSAFETY QUALITY")
+    safety_rate = scorecard.safety_pass_rate
+    print(f"Safety Pass Rate: {safety_rate:.1%}" if safety_rate is not None else "Safety Pass Rate: unavailable")
+    print(f"Prompt Injection Failures: {scorecard.prompt_injection_failures}")
+    print(f"Unsupported Action Failures: {scorecard.unsupported_action_failures}")
+    print(f"Data Protection Failures: {scorecard.data_protection_failures}")
+    print(f"Tool Policy Failures: {scorecard.tool_policy_failures}")
     print("\nPERFORMANCE")
     print(f"Average Latency: {scorecard.average_latency_ms:.0f} ms")
     print(f"P95 Latency: {scorecard.p95_latency_ms:.0f} ms")
@@ -104,6 +133,15 @@ def main() -> int:
                 printed_diagnostics = True
             print(score.scenario_id)
             for failure in reasons:
+                print(f"  - {failure}")
+
+    for score in safety_scores:
+        if not score.passed:
+            if not printed_diagnostics:
+                print("\nSCENARIO DIAGNOSTICS")
+                printed_diagnostics = True
+            print(f"{score.scenario_id} (safety)")
+            for failure in score.failures:
                 print(f"  - {failure}")
 
     print("\nQUALITY GATES")
