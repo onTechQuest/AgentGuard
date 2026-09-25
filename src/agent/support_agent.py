@@ -1,6 +1,7 @@
 """Customer support agent backed by deterministic order tools."""
 
 from dataclasses import dataclass
+from collections.abc import Callable
 
 from dotenv import load_dotenv
 from agents import Agent, Runner, RunResult, RunHooks, function_tool
@@ -11,6 +12,7 @@ from src.agent import telemetry
 from src.agent.request_budget import RecoveryBudgetPolicy, RequestBudget, RequestBudgetRejected
 from src.agent.request_execution import admit, request_execution, stage
 from src.agent.model_execution import run_model
+from src.agent.retry_policy import ModelRetryPolicy, request_retries
 from src.agent.capability_router import CapabilityRouter, SemanticCapabilityRouter
 from src.agent.request_policy import resolve_request_policy
 from src.agent.data_policy import project_tool_result
@@ -84,11 +86,15 @@ class _PlannedExecutionTrace(ExecutionTrace):
 
 @telemetry.observe_request
 @request_execution
+@request_retries
 def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | None = None,
                                recovery_planner: RecoveryPlanner | None = None,
                                request_label: str | None = None,
                                request_budget: RequestBudget | None = None,
-                               recovery_budget_policy: RecoveryBudgetPolicy | None = None) -> RunResult:
+                               recovery_budget_policy: RecoveryBudgetPolicy | None = None,
+                               retry_policy: ModelRetryPolicy | None = None,
+                               retry_sleeper: Callable[[float], None] | None = None,
+                               retry_wall_clock: Callable[[], float] | None = None) -> RunResult:
     """Route, validate completeness, authorize, execute, and synthesize once.
 
     Runtime operations live in context_wrapper.context, and their projected
@@ -98,6 +104,9 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
     Planning failures propagate before execution, without an unrestricted fallback.
     request_label is optional opaque telemetry metadata, never a prompt or policy input.
     An explicitly finite request_budget enforces admission and late-result rejection.
+    Model attempts retry only with an explicit enabled retry_policy. Returned
+    usage includes known failed attempts; production_telemetry marks incomplete
+    consumption and retains attempt usage even on terminal errors.
     Unlimited/default requests retain the existing execution behavior.
     """
     with stage("primary_router"):
@@ -138,7 +147,7 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
             model_input = trace.model_input(user_message)
             admit("synthesis")
             telemetry.model_call(agent)
-            result = run_model(agent, model_input, context=trace,
+            result = run_model(agent, model_input, component="synthesis", context=trace,
                                hooks=_SynthesisHooks(), max_turns=1)
             telemetry.model_result(result)
     except ExecutionFailure as error:

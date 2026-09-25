@@ -157,7 +157,7 @@ class SemanticCapabilityRouter:
         admit("primary_router")
         try:
             telemetry.model_call(self.agent, default_resolution=self._run is None)
-            result = run_model(self.agent, routing_input, run=self._run, max_turns=1)
+            result = run_model(self.agent, routing_input, component="primary_router", run=self._run, max_turns=1)
             telemetry.model_result(result)
             output = result.final_output
             if isinstance(output, CapabilityPlanOutput):

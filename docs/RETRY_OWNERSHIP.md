@@ -1,10 +1,11 @@
 # Milestone 13C.3A: single retry ownership and transport verification
 
-AgentGuard makes one SDK invocation per logical model call and now explicitly
-disables lower-layer model retries. There is **no AgentGuard retry loop**, backoff,
-Retry-After handling, or new production deadline. Transient failures that formerly
-received hidden retries now surface immediately. This is the intentional change
-for both finite-budget and unlimited requests.
+AgentGuard explicitly disables lower-layer model retries. Default requests still
+make one SDK invocation per logical model call and surface transient failures
+immediately, for both finite-budget and unlimited requests. Milestone 13C.3B adds
+an explicit, disabled-by-default [AgentGuard retry policy](MODEL_RETRY_POLICY.md).
+This document records the lower-layer suppression and transport proof established
+in 13C.3A; that suppression remains active on every controlled retry attempt.
 
 ## Supported configuration and scope
 
@@ -115,12 +116,14 @@ requests before synthesis, not a routing retry.
 13C.2 admission and acceptance checks remain authoritative: no dispatch after
 pre-dispatch exhaustion; late results preserve completed work/usage and are
 abandoned. Disabling client retries does not add cancellation or a component
-timeout. No retry admission or attempt budget is configured.
+timeout. No retry admission or attempt budget is configured by default. Explicit
+13C.3B policies must additionally admit each retry within the original budget.
 
 Run `python -m pytest tests -q`, including the 13B fault matrix and all 13C budget
 tests. No live evaluation is needed. Existing test-only tracing wrappers preserve
 the new run configuration instead of replacing it.
 
-13C.3B remains responsible for any approved AgentGuard retry policy, eligibility,
-attempt limits, budget/reserve admission, backoff, and failed-attempt accounting.
-Tools remain single-attempt. No such application retry behavior is enabled here.
+13C.3B implements explicit AgentGuard eligibility, attempt limits, shared allowance,
+budget/reserve admission, backoff and failed-attempt accounting. Tools remain
+single-attempt. Application retry behavior remains disabled by default; see
+[Model retry policy](MODEL_RETRY_POLICY.md) for controlled use and its tests.

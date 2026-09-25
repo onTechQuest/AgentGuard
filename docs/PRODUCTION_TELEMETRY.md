@@ -28,13 +28,19 @@ explicit finite budgets enforce admission and late-result rejection in a separat
 runtime module, independent of best-effort telemetry. See [Request budget and
 attempts](REQUEST_BUDGET.md) for reserve policy, completed-versus-accepted evidence,
 cancellation semantics, and the deferred operation reliability contract. Default
-production remains unlimited, with no application retry loop or enforced deadline.
+production remains unlimited, with application retries and deadlines disabled.
 
 Milestone 13C.3A adds per-span/per-attempt `lower_layer_retries_configured=False`
 on the configured production SDK path. `transport_attempts_observed` remains
 `None` without a transport observer; configuration does not supply a measured
 count or justify `http_retry_count=0`. See [Retry ownership](RETRY_OWNERSHIP.md)
 for the scoped SDK/client configuration and actual mocked-transport verification.
+
+Milestone 13C.3B adds explicit [model retry control](MODEL_RETRY_POLICY.md).
+Request summaries record policy enablement, initial/consumed/remaining shared
+allowance, extra attempts and exhaustion. Attempts carry delivery certainty,
+provider status, decisions/denials/delays, and individual usage completeness.
+Telemetry remains non-authoritative; retry control uses separate request state.
 
 ## Spans and authoritative evidence
 
@@ -62,18 +68,20 @@ failures retain the first observed cause rather than replacing it with a generic
 parent obligation failure. Provider bodies and exception messages are excluded.
 
 Component token counters are copied before production aggregation. The existing
-aggregate remains primary routing + optional recovery + synthesis. `observed_usage`
+aggregate remains primary routing + optional recovery + synthesis, including
+returned usage from all attempts when retries are explicitly enabled. `observed_usage`
 sums only available counters; on partial observations it is not a complete bill.
 `usage_completeness` means:
 
-- `COMPLETE`: all observed logical model calls have returned token evidence.
-- `PARTIAL`: some usage is known, but another call or observation is incomplete.
+- `COMPLETE`: all observed model attempts have returned token evidence.
+- `PARTIAL`: some usage is known, but another attempt or observation is incomplete.
 - `UNAVAILABLE`: no model token usage is known.
 
 This describes SDK-visible accounting, not complete HTTP consumption. Logical
 calls, SDK-visible requests and transport retries are distinct. Recovery is a new
-logical call, not a retry. HTTP retry count/source remain `null` without transport
-evidence. Failed-attempt tokens are never estimated. SDK default zeros without
+logical call, not a retry. HTTP retry count remains `null` without transport
+evidence; performed application retries set `retry_source="agentguard"`.
+Failed-attempt tokens are never estimated. SDK default zeros without
 usage evidence are represented as unavailable in telemetry. Existing aggregate
 scorecard formulas remain unchanged.
 

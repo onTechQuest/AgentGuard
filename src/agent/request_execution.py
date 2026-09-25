@@ -11,7 +11,7 @@ from functools import wraps
 
 from src.agent import telemetry
 from src.agent.request_budget import (
-    AdmissionDenial, RequestBudgetRejected, RequestDeadlineExceeded,
+    AdmissionDenial, AdmissionEvidence, RequestBudgetRejected, RequestDeadlineExceeded,
 )
 
 
@@ -38,6 +38,19 @@ def admit(component):
     telemetry.stage_admission(evidence)
     if not evidence.admitted:
         _reject(component, evidence)
+
+
+def retry_admission(component, *, delay_ms, minimum_ms, reserve_ms):
+    """Retry delay and useful work must fit without spending downstream reserves."""
+    recovery = _recovery_policy.get() if component == "recovery_planner" else None
+    if recovery is not None:
+        requirements = recovery.requirements()
+        minimum_ms = max(minimum_ms, requirements["minimum_ms"])
+        reserve_ms = max(reserve_ms, requirements["reserve_ms"])
+    budget = _active_budget.get()
+    if budget is None:
+        return AdmissionEvidence(None, reserve_ms, delay_ms + minimum_ms, None, True)
+    return budget.admission(minimum_ms=delay_ms + minimum_ms, reserve_ms=reserve_ms)
 
 
 @contextmanager

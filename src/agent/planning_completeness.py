@@ -120,7 +120,7 @@ class SemanticRecoveryPlanner:
             "user_text": user_message,
             "primary_plan": _plan_snapshot(primary_plan),
             "review_evidence": evidence,
-        }, ensure_ascii=False, separators=(",", ":")), run=self._run, max_turns=1)
+        }, ensure_ascii=False, separators=(",", ":")), component="recovery_planner", run=self._run, max_turns=1)
         telemetry.model_result(result)
         # Validate at the boundary below, so usage is retained even for invalid output.
         return RecoveryResult(result.final_output, result.context_wrapper.usage)

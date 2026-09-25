@@ -3,8 +3,10 @@
 The runtime still routes, optionally recovers planning, resolves policy, executes
 required tools once, projects their results, and synthesizes with `tools=[]`.
 Explicit finite budgets now gate admission and result acceptance. Unlimited/default
-requests retain their existing behavior. No retry loop, numeric production timeout,
-asynchronous orchestrator, thread wrapper, or provider configuration change is added.
+requests retain their existing behavior. No numeric production timeout,
+asynchronous orchestrator or thread wrapper is added. Since 13C.3B, an explicit
+[model retry policy](MODEL_RETRY_POLICY.md) can use this same budget; retries
+remain disabled by default.
 
 ## RequestBudget API
 
@@ -119,7 +121,7 @@ it still does not prove remote cancellation or the outcome of a remote write.
 
 ## Attempt and stage telemetry
 
-Each current logical model call creates one `AttemptTelemetry`, nested in its
+Each logical model call starts with one `AttemptTelemetry`, nested in its
 component span, with a new `logical_call_id` and `attempt_number=1`. Primary
 routing, optional recovery, and synthesis have distinct identities. Recovery is
 never routing attempt 2. Local output validation belongs to the logical call, so
@@ -127,8 +129,10 @@ an invalid structured result marks its attempt failed even if usage was returned
 
 An attempt retains component, monotonic start offset/duration, budget before/after,
 status, failure category, sanitized exception type, SDK-visible requests, returned
-token counters, and `usage_known`. Retry eligibility/reason/denial/delay remain
-`None` because no application retry decision is made. `retry_performed=False`;
+token counters, and `usage_known`. Default requests make no application retry
+decision, leaving retry eligibility/reason/denial/delay `None` and
+`retry_performed=False`. Explicit 13C.3B policies record decisions and additional
+numbered attempts under the same logical ID. For all policies,
 `http_retry_count=None` because lower-layer retries are not observed. SDK request
 counts do not supply an HTTP retry count. Since 13C.3A, lower-layer model retries
 are disabled through scoped SDK settings; [Retry ownership](RETRY_OWNERSHIP.md)
@@ -199,8 +203,8 @@ concurrency, sanitized telemetry, and enforcement independent of observers.
 
 Run `python -m pytest tests -q`; no live evaluations are needed.
 
-13C.3A verifies and disables lower-layer model retries without adding application
-retries. 13C.3B still needs an explicitly approved single-owner retry design:
+13C.3A verifies and disables lower-layer model retries. 13C.3B implements
+disabled-by-default [application retry control](MODEL_RETRY_POLICY.md), including
 eligibility, retry admission, backoff, and failed-attempt usage. Numeric production
 deadline and reserve policy, cooperative cancellation, and tool reliability
 contract wiring remain unconfigured.

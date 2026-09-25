@@ -69,6 +69,8 @@ class Wire:
     result: object | None = None
     error: Exception | None = None
     observed: dict | None = None
+    failure_schedule: dict = field(default_factory=dict)
+    guidance_headers: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.client = AsyncOpenAI(api_key="offline-test-key", base_url="https://offline.invalid/v1",
@@ -93,17 +95,27 @@ class Wire:
         if component == self.late_component:
             self.clock.now += 1.0
         failure = self.failure if component == self.failed_component else None
+        if component in self.failure_schedule:
+            sequence = self.failure_schedule[component]
+            index = self.attempts[component] - 1
+            failure = sequence[index] if index < len(sequence) else None
         # Any replay would succeed, making a hidden retry both countable and visible.
-        if self.attempts[component] == 1 and failure not in {None, "invalid"}:
+        if (self.attempts[component] == 1 or component in self.failure_schedule) and failure not in {None, "invalid"}:
             if failure == "network":
                 raise httpx2.ConnectError(PRIVATE, request=request)
             if failure == "timeout":
                 raise httpx2.ReadTimeout(PRIVATE, request=request)
-            status = {"429": 429, "500": 500, "401": 401, "403": 403, "locked": 400}[failure]
+            if failure == "connect_timeout":
+                raise httpx2.ConnectTimeout(PRIVATE, request=request)
+            if failure == "read_error":
+                raise httpx2.ReadError(PRIVATE, request=request)
+            if failure == "write_error":
+                raise httpx2.WriteError(PRIVATE, request=request)
+            status = {"429": 429, "500": 500, "501": 501, "503": 503, "401": 401, "403": 403, "locked": 400}[failure]
             return httpx2.Response(status, json={"error": {
                 "message": PRIVATE, "type": "invalid_request_error",
                 "code": "conversation_locked" if failure == "locked" else "offline_error",
-            }}, headers={"x-should-retry": "false" if failure == "locked" else "true"})
+            }}, headers={"x-should-retry": "false" if failure == "locked" else "true", **self.guidance_headers})
         binding = {"capability": "order_status", "order_id": "ORD-1001", "needs_clarification": False}
         if component == "primary_router":
             output = json.dumps({"capability_requests": [] if self.recovery else [binding], "confidence": 0.99,
@@ -117,11 +129,11 @@ class Wire:
             output = "not valid structured JSON"
         return httpx2.Response(200, json=response_body(body["model"], output, component))
 
-    def run(self, *, budget=None):
+    def run(self, *, budget=None, **options):
         token = _wire.set(self)
         try:
             try:
-                self.result = support.run_support_agent_detailed(PROMPT, request_budget=budget)
+                self.result = support.run_support_agent_detailed(PROMPT, request_budget=budget, **options)
             except Exception as error:
                 self.error = error
                 self.observed = telemetry.snapshot(getattr(error, "production_telemetry", None))

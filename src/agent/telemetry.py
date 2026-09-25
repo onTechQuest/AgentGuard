@@ -1,6 +1,6 @@
 """Local, non-authoritative production observations. Never records request payloads.
 
-COMPLETE means usage was returned for every observed logical model call, not
+COMPLETE means usage was returned for every observed model attempt, not
 that unobservable HTTP attempts are accounted for. No transport retries are
 inferred from SDK request counts. Context tokens are reset on every exit path.
 """
@@ -121,9 +121,12 @@ class AttemptTelemetry:
     lower_layer_retries_configured: bool | None = None
     returned_usage: dict = field(default_factory=dict)
     usage_known: bool = False
+    usage_completeness: UsageCompleteness = UsageCompleteness.UNAVAILABLE
     late_completion: bool = False
     result_accepted: bool | None = None
     result_abandoned: bool = False
+    delivery_certainty: str | None = None
+    provider_status_code: int | None = None
 
 
 @dataclass
@@ -191,6 +194,12 @@ class ProductionExecutionTelemetry:
     remote_outcome_unknown: bool = False
     unknown_usage_attempt_count: int = 0
     recovery_admission: AdmissionEvidence | None = None
+    retry_policy_enabled: bool = False
+    retry_allowance_initial: int = 0
+    retry_allowance_consumed: int = 0
+    retry_allowance_remaining: int = 0
+    retry_attempts_total: int = 0
+    retry_exhausted: bool = False
 
     def snapshot(self):
         """JSON-safe allowlisted observations; no source plans or tool payloads."""
@@ -280,9 +289,21 @@ def _end(span):
 
 
 def _end_attempt(span):
-    if not span.attempts or span.attempts[-1].status != "running":
+    if not span.attempts:
         return
     attempt = span.attempts[-1]
+    if attempt.status != "running":
+        if attempt.status == "completed":
+            attempt.late_completion = span.late_completion
+            attempt.result_accepted = span.result_accepted
+            attempt.result_abandoned = span.result_abandoned
+            if span.status == "failed":
+                # Local validation after a returned model result is still part of
+                # the logical call, but it must never trigger transport replay.
+                attempt.status = "failed"
+                attempt.failure_category = span.failure_category
+                attempt.exception_type = span.sanitized_exception_type
+        return
     attempt.duration_ms = (time.perf_counter() - _started.get()) * 1000 - attempt.started_offset_ms
     attempt.status = "completed" if span.status == "running" else span.status
     # Result rejection is a request failure, not failure of completed model work.
@@ -376,6 +397,74 @@ def retry_configuration(*, lower_layer_retries_configured):
 
 
 @best_effort
+def retry_summary(state):
+    record = _request.get()
+    if record is not None:
+        record.retry_policy_enabled = state.policy.enabled
+        record.retry_allowance_initial = state.policy.shared_extra_attempts_per_request
+        record.retry_allowance_consumed = state.consumed
+        record.retry_allowance_remaining = state.remaining
+        record.retry_attempts_total = state.consumed
+        record.retry_exhausted = state.exhausted
+
+
+def _close_current_attempt(status):
+    span = _span.get()
+    if span is None or not span.attempts:
+        return None
+    attempt = span.attempts[-1]
+    attempt.status = status
+    attempt.duration_ms = (time.perf_counter() - _started.get()) * 1000 - attempt.started_offset_ms
+    if _budget.get() is not None:
+        attempt.remaining_budget_after_ms = _budget.get().remaining_ms()
+    return attempt
+
+
+@best_effort
+def attempt_failure(error, evidence):
+    attempt = _close_current_attempt("failed")
+    if attempt is not None:
+        attempt.failure_category = evidence.category
+        name = type(error).__name__
+        attempt.exception_type = name if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]{0,127}", name) else "Exception"
+        attempt.delivery_certainty = evidence.delivery
+        attempt.provider_status_code = evidence.status_code
+
+
+@best_effort
+def attempt_success():
+    _close_current_attempt("completed")
+
+
+@best_effort
+def retry_decision(decision, *, performed=False):
+    span = _span.get()
+    if span is not None and span.attempts:
+        attempt = span.attempts[-1]
+        attempt.retry_eligible = decision.eligible
+        attempt.retry_performed = performed
+        attempt.retry_reason = attempt.failure_category
+        attempt.retry_denial_reason = decision.denial_reason
+        attempt.retry_delay_ms = decision.delay_ms
+        if performed:
+            span.retry_source = "agentguard"
+
+
+@best_effort
+def next_attempt():
+    span = _span.get()
+    if span is not None and span.attempts:
+        previous = span.attempts[-1]
+        attempt = AttemptTelemetry(previous.logical_call_id, span.component, previous.attempt_number + 1,
+                                   (time.perf_counter() - _started.get()) * 1000)
+        span.attempts.append(attempt)
+        if _budget.get() is not None:
+            attempt.remaining_budget_before_ms = _budget.get().remaining_ms()
+        span.usage_available = False
+        span.sdk_visible_requests = span.input_tokens = span.output_tokens = span.total_tokens = None
+
+
+@best_effort
 def usage(available):
     span = _span.get()
     if span is None or available is None:
@@ -390,12 +479,14 @@ def usage(available):
                             and (span.total_tokens > 0 or bool(getattr(available, "request_usage_entries", None))))
     if not span.usage_available:
         span.input_tokens = span.output_tokens = span.total_tokens = None
-    if span.attempts:
+    if span.attempts and span.attempts[-1].status == "running":
         attempt = span.attempts[-1]
         attempt.sdk_visible_requests = span.sdk_visible_requests
         attempt.returned_usage = {name: getattr(span, name) for name in
                                   ("input_tokens", "output_tokens", "total_tokens")}
         attempt.usage_known = span.usage_available
+        attempt.usage_completeness = (UsageCompleteness.COMPLETE if span.usage_available
+                                      else UsageCompleteness.UNAVAILABLE)
 
 
 @best_effort
@@ -474,6 +565,14 @@ def _finish(record, started, error):
         record.result_abandoned = budget.result_abandoned
         record.remote_outcome_unknown = budget.remote_outcome_unknown
     record.unknown_usage_attempt_count = sum(not a.usage_known for s in record.component_spans for a in s.attempts)
+    for span in record.component_spans:
+        if len(span.attempts) > 1:
+            for key in ("sdk_visible_requests", "input_tokens", "output_tokens", "total_tokens"):
+                values = [(a.sdk_visible_requests if key == "sdk_visible_requests" else a.returned_usage.get(key))
+                          for a in span.attempts]
+                known_values = [v for v in values if v is not None]
+                setattr(span, key, sum(known_values) if known_values else None)
+            span.usage_available = all(a.usage_known for a in span.attempts)
     observed = [s for s in record.component_spans if s.logical_model_calls or s.sdk_visible_requests is not None]
     known = [s for s in observed if s.usage_available]
     record.observed_usage = {
@@ -483,7 +582,8 @@ def _finish(record, started, error):
     }
     record.usage_completeness = (UsageCompleteness.COMPLETE if observed and len(known) == len(observed)
                                  and not record.observation_incomplete else
-                                 UsageCompleteness.PARTIAL if known else UsageCompleteness.UNAVAILABLE)
+                                 UsageCompleteness.PARTIAL if any(s.total_tokens is not None for s in observed)
+                                 else UsageCompleteness.UNAVAILABLE)
     if error is not None:
         # Innermost failure finishes first. Prefer its cause over a parent obligation failure.
         cause = _failure.get()
