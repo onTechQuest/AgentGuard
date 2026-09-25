@@ -31,18 +31,18 @@ def test_aggregate_metrics_and_preserve_inputs():
 
     card = build_scorecard(pairs)
 
-    assert card == AgentGuardScorecard(4, 1, 3, 0.25, 0.5, 0.75, 250.0, 400.0, 100.0)
+    assert replace(card, functional_production_usage=None) == AgentGuardScorecard(4, 1, 3, 0.25, 0.5, 0.75, 250.0, 400.0, 100.0)
     assert pairs == original
 
 
 def test_empty_input():
-    assert build_scorecard([]) == AgentGuardScorecard(
+    assert replace(build_scorecard([]), functional_production_usage=None) == AgentGuardScorecard(
         0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, None,
     )
 
 
 def test_single_scenario():
-    assert build_scorecard([make_pair(12.5, 7)]) == AgentGuardScorecard(
+    assert replace(build_scorecard([make_pair(12.5, 7)]), functional_production_usage=None) == AgentGuardScorecard(
         1, 1, 0, 1.0, 1.0, 1.0, 12.5, 12.5, 7.0,
     )
 
@@ -79,6 +79,23 @@ def test_zero_and_repeated_latencies():
     assert card.average_latency_ms == card.p95_latency_ms == 0.0
 
 
+def test_functional_safety_and_judge_usage_are_separate():
+    functional = [make_pair(100, 1200), make_pair(200, 1300)]
+    safety = [make_pair(22493, 4000)[0], make_pair(900, None)[0]]
+    semantic = make_semantic()
+    semantic.total_tokens = 999999  # Evaluation-only counters are never production inputs.
+    semantic.latency_ms = 999999
+    card = build_scorecard(functional, semantic_scores=[semantic], safety_records=safety)
+    assert card.functional_production_usage.execution_count == 2
+    assert card.functional_production_usage.average_latency_ms == card.average_latency_ms == 150
+    assert card.functional_production_usage.average_tokens_per_execution == card.average_tokens_per_run == 1250
+    assert card.safety_production_usage.execution_count == 2
+    assert card.safety_production_usage.maximum_latency_ms == 22493
+    assert len(card.safety_production_usage.exceeding(7500)) == 1
+    assert card.safety_production_usage.average_tokens_per_execution == 4000
+    assert card.safety_production_usage.token_observation_count == 1
+
+
 def make_semantic(scores=(0.9, 0.95, 1.0), passes=(True, True, True)):
     return SemanticScore(
         scenario_id="example",
@@ -97,7 +114,7 @@ def test_all_semantic_scores_available_and_deterministic_metrics_unchanged():
 
     assert replace(
         card, average_answer_relevancy=None, average_correctness=None,
-        average_hallucination_score=None, semantic_pass_rate=None,
+        average_hallucination_score=None, semantic_pass_rate=None, functional_production_usage=None,
     ) == AgentGuardScorecard(
         total_scenarios=2, passed_scenarios=1, failed_scenarios=1,
         functional_accuracy=0.5, tool_accuracy=1.0, argument_accuracy=0.5,

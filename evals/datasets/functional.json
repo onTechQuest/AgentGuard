@@ -1,8 +1,11 @@
 [
   {
     "id": "order_status_001",
+    "category": "order_status",
+    "tier": "smoke",
+    "risk": "high",
     "input": "Where is order ORD-1001?",
-     "expected_output": "Order ORD-1001 has shipped via UPS and is estimated to arrive on September 12, 2026.",
+    "expected_output": "Order ORD-1001 has shipped via UPS and is estimated to arrive on September 12, 2026.",
     "expected_tools": [
       {
         "name": "get_order_status",
@@ -11,11 +14,34 @@
         }
       }
     ],
-    "expected_contains": ["ORD-1001", "UPS"],
-    "forbidden_contains": ["not found"]
+    "expected_contains": [
+      "ORD-1001",
+      "UPS"
+    ],
+    "forbidden_contains": [
+      "not found"
+    ],
+    "test_intent": "baseline",
+    "coverage_tags": [
+      "status_grounding",
+      "uppercase_id"
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1001",
+        "status": "shipped"
+      }
+    ]
   },
   {
     "id": "order_status_002",
+    "category": "order_status",
+    "tier": "smoke",
+    "risk": "high",
     "input": "What's happening with ord-1002?",
     "expected_output": "Order ORD-1002 is still processing and does not yet have carrier or tracking information.",
     "expected_tools": [
@@ -26,11 +52,36 @@
         }
       }
     ],
-    "expected_contains": ["ORD-1002", "processing"],
-    "forbidden_contains": ["UPS", "FedEx"]
+    "expected_contains": [
+      "ORD-1002",
+      "processing"
+    ],
+    "forbidden_contains": [
+      "UPS",
+      "FedEx"
+    ],
+    "test_intent": "baseline",
+    "coverage_tags": [
+      "status_grounding",
+      "order_id_normalization",
+      "processing"
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1002",
+        "status": "processing"
+      }
+    ]
   },
   {
     "id": "return_001",
+    "category": "return_eligibility",
+    "tier": "smoke",
+    "risk": "high",
     "input": "Can I return ORD-1003?",
     "expected_output": "Order ORD-1003 is eligible for return because it was delivered within the 30-day return window.",
     "expected_tools": [
@@ -41,11 +92,34 @@
         }
       }
     ],
-    "expected_contains": ["eligible"],
-    "forbidden_contains": ["not eligible"]
+    "expected_contains": [
+      "eligible"
+    ],
+    "forbidden_contains": [
+      "not eligible"
+    ],
+    "test_intent": "baseline",
+    "coverage_tags": [
+      "return_eligibility",
+      "delivered_order"
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1003",
+        "status": "delivered",
+        "eligible": true
+      }
+    ]
   },
   {
     "id": "missing_order_001",
+    "category": "missing_order",
+    "tier": "smoke",
+    "risk": "high",
     "input": "Where is order ORD-9999?",
     "expected_output": "Order ORD-9999 does not exist or could not be found.",
     "expected_tools": [
@@ -56,7 +130,1109 @@
         }
       }
     ],
-    "expected_contains": ["not found"],
-    "forbidden_contains": ["UPS", "FedEx", "shipped"]
+    "expected_contains": [
+      "not found"
+    ],
+    "forbidden_contains": [
+      "UPS",
+      "FedEx",
+      "shipped"
+    ],
+    "test_intent": "negative",
+    "coverage_tags": [
+      "missing_order",
+      "no_fabrication"
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-9999",
+        "found": false
+      }
+    ]
+  },
+  {
+    "id": "order_status_003",
+    "category": "order_status",
+    "tier": "smoke",
+    "risk": "high",
+    "test_intent": "baseline",
+    "coverage_tags": [
+      "status_grounding",
+      "delivered_status"
+    ],
+    "input": "Has ORD-1003 arrived?",
+    "expected_output": "ORD-1003 was delivered on September 8, 2026.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1003"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1003",
+        "status": "delivered"
+      }
+    ]
+  },
+  {
+    "id": "order_status_004",
+    "category": "order_status",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "boundary",
+    "coverage_tags": [
+      "order_id_normalization",
+      "whitespace"
+    ],
+    "input": "Please check order \"  ORD-1001  \".",
+    "expected_output": "ORD-1001 has shipped.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1001",
+        "status": "shipped"
+      }
+    ]
+  },
+  {
+    "id": "order_status_005",
+    "category": "order_status",
+    "tier": "full",
+    "risk": "medium",
+    "test_intent": "paraphrase",
+    "coverage_tags": [
+      "conversational_language",
+      "minimal_answer"
+    ],
+    "input": "Hey, any news on my package, ORD-1001? Just the current stage is enough.",
+    "expected_output": "ORD-1001 has shipped.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1001",
+        "status": "shipped"
+      }
+    ]
+  },
+  {
+    "id": "order_status_006",
+    "category": "order_status",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "baseline",
+    "coverage_tags": [
+      "carrier",
+      "tracking_number"
+    ],
+    "input": "Which carrier has ORD-1001 and what is its tracking number?",
+    "expected_output": "The carrier is UPS and the tracking number is 1Z999AA10123456784.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": {
+      "tool": "get_order_status",
+      "order_id": "ORD-1001",
+      "status": "shipped",
+      "carrier": "UPS",
+      "tracking_number": "1Z999AA10123456784"
+    }
+  },
+  {
+    "id": "order_status_007",
+    "category": "order_status",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "baseline",
+    "coverage_tags": [
+      "delivery_estimate"
+    ],
+    "input": "What is the estimated arrival date for ORD-1001?",
+    "expected_output": "The estimated delivery date is September 12, 2026.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": {
+      "tool": "get_order_status",
+      "order_id": "ORD-1001",
+      "status": "shipped",
+      "estimated_delivery": "2026-09-12"
+    }
+  },
+  {
+    "id": "order_status_008",
+    "category": "order_status",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "processing",
+      "negation"
+    ],
+    "input": "Has ORD-1002 shipped yet? I only need to know whether it has left processing.",
+    "expected_output": "ORD-1002 is still processing and has not shipped yet.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1002"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1002",
+        "status": "processing"
+      }
+    ]
+  },
+  {
+    "id": "order_status_009",
+    "category": "order_status",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "missing_order",
+      "false_dichotomy"
+    ],
+    "input": "Is ORD-9998 in transit or already delivered?",
+    "expected_output": "ORD-9998 was not found, so its delivery stage cannot be confirmed.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-9998"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-9998",
+        "found": false
+      }
+    ]
+  },
+  {
+    "id": "order_status_010",
+    "category": "order_status",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "unsupported_assumption",
+      "status_grounding"
+    ],
+    "input": "ORD-1001 must already be delivered because it shipped. What is its actual status?",
+    "expected_output": "ORD-1001 is shipped; the record does not show it as delivered.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1001",
+        "status": "shipped"
+      }
+    ]
+  },
+  {
+    "id": "return_002",
+    "category": "return_eligibility",
+    "tier": "smoke",
+    "risk": "high",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "undelivered_order",
+      "return_eligibility"
+    ],
+    "input": "Can I return ORD-1002 now?",
+    "expected_output": "ORD-1002 is not eligible because it has not been delivered.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1002"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1002",
+        "status": "processing",
+        "eligible": false
+      }
+    ]
+  },
+  {
+    "id": "return_003",
+    "category": "return_eligibility",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "paraphrase",
+    "coverage_tags": [
+      "order_id_normalization",
+      "return_eligibility"
+    ],
+    "input": "Is ord-1003 returnable?",
+    "expected_output": "ORD-1003 is eligible for return.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ord-1003"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1003",
+        "status": "delivered",
+        "eligible": true
+      }
+    ]
+  },
+  {
+    "id": "return_004",
+    "category": "return_eligibility",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "boundary",
+    "coverage_tags": [
+      "shipped_not_delivered",
+      "return_eligibility"
+    ],
+    "input": "ORD-1001 has shipped. Does that make it eligible for return?",
+    "expected_output": "ORD-1001 is not eligible because it has not been delivered.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1001",
+        "status": "shipped",
+        "eligible": false
+      }
+    ]
+  },
+  {
+    "id": "return_005",
+    "category": "return_eligibility",
+    "tier": "full",
+    "risk": "medium",
+    "test_intent": "paraphrase",
+    "coverage_tags": [
+      "return_policy",
+      "conversational_language"
+    ],
+    "input": "Would sending back the item in ORD-1003 be allowed under the return policy?",
+    "expected_output": "ORD-1003 qualifies for a return within the 30-day window.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1003"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1003",
+        "status": "delivered",
+        "eligible": true
+      }
+    ]
+  },
+  {
+    "id": "return_006",
+    "category": "return_eligibility",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "incorrect_eligibility_assumption",
+      "negation"
+    ],
+    "input": "I believe ORD-1002 is eligible even before delivery. Is that correct?",
+    "expected_output": "No. ORD-1002 is not eligible because it has not been delivered.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1002"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1002",
+        "status": "processing",
+        "eligible": false
+      }
+    ]
+  },
+  {
+    "id": "return_007",
+    "category": "return_eligibility",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "false_positive_control",
+    "coverage_tags": [
+      "incorrect_ineligibility_assumption",
+      "verification"
+    ],
+    "input": "I assumed ORD-1003 is too old to return. Please verify rather than accepting my assumption.",
+    "expected_output": "ORD-1003 is eligible; its delivery is within the 30-day window.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1003"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1003",
+        "status": "delivered",
+        "eligible": true
+      }
+    ]
+  },
+  {
+    "id": "return_008",
+    "category": "return_eligibility",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "boundary",
+    "coverage_tags": [
+      "return_boundary",
+      "day_30_inclusive"
+    ],
+    "input": "As of September 10, 2026, is ORD-1030 still within the return window?",
+    "expected_output": "Yes. ORD-1030 is eligible on day 30 after delivery; the 30-day boundary is inclusive.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1030"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1030",
+        "status": "delivered",
+        "eligible": true
+      }
+    ]
+  },
+  {
+    "id": "return_009",
+    "category": "return_eligibility",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "boundary",
+    "coverage_tags": [
+      "return_boundary",
+      "day_31_expired"
+    ],
+    "input": "As of September 10, 2026, may I return ORD-1031?",
+    "expected_output": "No. ORD-1031 was delivered 31 days ago and the 30-day return window has expired.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1031"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1031",
+        "status": "delivered",
+        "eligible": false
+      }
+    ]
+  },
+  {
+    "id": "return_010",
+    "category": "return_eligibility",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "missing_order",
+      "no_eligibility_fabrication"
+    ],
+    "input": "Can I return ORD-9998 if you cannot find it?",
+    "expected_output": "ORD-9998 was not found and return eligibility cannot be established.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-9998"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-9998",
+        "found": false,
+        "eligible": false
+      }
+    ]
+  },
+  {
+    "id": "invalid_input_001",
+    "category": "invalid_input",
+    "tier": "full",
+    "risk": "medium",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "missing_id",
+      "clarification"
+    ],
+    "input": "Where is my order?",
+    "expected_output": "Ask for the order ID before looking up its status.",
+    "expected_tools": [],
+    "allowed_tools": [],
+    "expected_contains": [],
+    "forbidden_contains": []
+  },
+  {
+    "id": "invalid_input_002",
+    "category": "invalid_input",
+    "tier": "full",
+    "risk": "medium",
+    "test_intent": "boundary",
+    "coverage_tags": [
+      "truncated_id",
+      "no_guessing"
+    ],
+    "input": "My order ID was cut off: ORD-. Ask me for the complete ID before checking it.",
+    "expected_output": "Ask for the complete order ID; do not guess the missing digits.",
+    "expected_tools": [],
+    "allowed_tools": [],
+    "expected_contains": [],
+    "forbidden_contains": []
+  },
+  {
+    "id": "invalid_input_003",
+    "category": "invalid_input",
+    "tier": "full",
+    "risk": "medium",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "customer_id_not_order_id",
+      "missing_id"
+    ],
+    "input": "My customer number is CUST-001. Where is my order?",
+    "expected_output": "Ask for the order ID; a customer ID is not an order ID.",
+    "expected_tools": [],
+    "allowed_tools": [],
+    "expected_contains": [],
+    "forbidden_contains": []
+  },
+  {
+    "id": "missing_order_002",
+    "category": "missing_order",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "missing_order",
+      "order_id_normalization"
+    ],
+    "input": "Is ord-9997 eligible for return?",
+    "expected_output": "ORD-9997 was not found; return eligibility cannot be established.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ord-9997"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-9997",
+        "found": false,
+        "eligible": false
+      }
+    ]
+  },
+  {
+    "id": "missing_order_003",
+    "category": "missing_order",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "missing_order",
+      "multi_intent",
+      "minimal_tool_set",
+      "capability_coverage"
+    ],
+    "input": "Please check both the status and return eligibility of ORD-9996.",
+    "expected_output": "ORD-9996 was not found, so neither a status nor eligibility can be confirmed.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-9996"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-9996",
+        "found": false,
+        "eligible": false
+      }
+    ]
+  },
+  {
+    "id": "ambiguity_001",
+    "category": "ambiguity",
+    "tier": "full",
+    "risk": "medium",
+    "test_intent": "ambiguity",
+    "coverage_tags": [
+      "multiple_candidate_ids",
+      "clarification"
+    ],
+    "input": "I have ORD-1001 and ORD-1002. I need the status of one of them; ask me which before looking anything up.",
+    "expected_output": "Ask which of ORD-1001 or ORD-1002 the user wants checked.",
+    "expected_tools": [],
+    "allowed_tools": [],
+    "expected_contains": [],
+    "forbidden_contains": []
+  },
+  {
+    "id": "ambiguity_002",
+    "category": "ambiguity",
+    "tier": "full",
+    "risk": "medium",
+    "test_intent": "ambiguity",
+    "coverage_tags": [
+      "ambiguous_return",
+      "missing_id"
+    ],
+    "input": "I want to send it back. Is that allowed?",
+    "expected_output": "Ask for the order ID to check return eligibility.",
+    "expected_tools": [],
+    "allowed_tools": [],
+    "expected_contains": [],
+    "forbidden_contains": []
+  },
+  {
+    "id": "tool_routing_001",
+    "category": "tool_routing",
+    "tier": "smoke",
+    "risk": "high",
+    "test_intent": "baseline",
+    "coverage_tags": [
+      "multi_intent",
+      "minimal_tool_set",
+      "capability_coverage",
+      "same_order"
+    ],
+    "input": "Check the status of ORD-1003 and also check whether it is eligible for return.",
+    "expected_output": "ORD-1003 is delivered and eligible for return.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1003"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1003",
+        "status": "delivered",
+        "eligible": true
+      }
+    ]
+  },
+  {
+    "id": "tool_routing_002",
+    "category": "tool_routing",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "false_positive_control",
+    "coverage_tags": [
+      "tool_routing",
+      "negated_return_request"
+    ],
+    "input": "I am not asking about a return. Just check the shipping status of ORD-1001.",
+    "expected_output": "ORD-1001 has shipped.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1001",
+        "status": "shipped"
+      }
+    ]
+  },
+  {
+    "id": "tool_routing_003",
+    "category": "tool_routing",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "paraphrase",
+    "coverage_tags": [
+      "tool_routing",
+      "return_priority"
+    ],
+    "input": "Instead of a shipping update, check return eligibility for ORD-1002.",
+    "expected_output": "ORD-1002 is not eligible because it has not been delivered.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1002"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1002",
+        "status": "processing",
+        "eligible": false
+      }
+    ]
+  },
+  {
+    "id": "tool_routing_004",
+    "category": "tool_routing",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "baseline",
+    "coverage_tags": [
+      "multiple_orders",
+      "argument_association"
+    ],
+    "input": "Check ORD-1001 and ORD-1002 separately. What is the current status of each?",
+    "expected_output": "ORD-1001 is shipped; ORD-1002 is processing.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      },
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1002"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1001",
+        "status": "shipped"
+      },
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1002",
+        "status": "processing"
+      }
+    ]
+  },
+  {
+    "id": "grounded_response_001",
+    "category": "grounded_response",
+    "tier": "smoke",
+    "risk": "high",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "carrier_grounding",
+      "unsupported_assumption"
+    ],
+    "input": "Is the carrier for ORD-1001 FedEx or UPS? Please verify.",
+    "expected_output": "The carrier for ORD-1001 is UPS.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": {
+      "tool": "get_order_status",
+      "order_id": "ORD-1001",
+      "status": "shipped",
+      "carrier": "UPS"
+    }
+  },
+  {
+    "id": "grounded_response_002",
+    "category": "grounded_response",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "boundary",
+    "coverage_tags": [
+      "estimate_not_guarantee"
+    ],
+    "input": "Does the record guarantee delivery of ORD-1001 on September 12, or is that an estimate?",
+    "expected_output": "September 12, 2026 is an estimated delivery date, not a guarantee.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": {
+      "tool": "get_order_status",
+      "order_id": "ORD-1001",
+      "status": "shipped",
+      "estimated_delivery": "2026-09-12"
+    }
+  },
+  {
+    "id": "grounded_response_003",
+    "category": "grounded_response",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "null_tracking",
+      "no_fabrication"
+    ],
+    "input": "What tracking number is assigned to ORD-1002? Do not make one up if it is absent.",
+    "expected_output": "ORD-1002 is processing and has no assigned tracking number in the record.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1002"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": {
+      "tool": "get_order_status",
+      "order_id": "ORD-1002",
+      "status": "processing",
+      "carrier": null,
+      "tracking_number": null
+    }
+  },
+  {
+    "id": "grounded_response_004",
+    "category": "grounded_response",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "baseline",
+    "coverage_tags": [
+      "multiple_orders",
+      "carrier_association"
+    ],
+    "input": "Compare the carriers for ORD-1001 and ORD-1003 without mixing the two orders up.",
+    "expected_output": "ORD-1001 uses UPS; ORD-1003 uses FedEx.",
+    "expected_tools": [
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1001"
+        }
+      },
+      {
+        "name": "get_order_status",
+        "arguments": {
+          "order_id": "ORD-1003"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "get_order_status"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1001",
+        "status": "shipped",
+        "carrier": "UPS"
+      },
+      {
+        "tool": "get_order_status",
+        "order_id": "ORD-1003",
+        "status": "delivered",
+        "carrier": "FedEx"
+      }
+    ]
+  },
+  {
+    "id": "grounded_response_005",
+    "category": "grounded_response",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "baseline",
+    "coverage_tags": [
+      "multi_intent",
+      "minimal_tool_set",
+      "capability_coverage",
+      "eligibility_reason"
+    ],
+    "input": "Check the status and return eligibility of ORD-1002 and explain how the two fit together.",
+    "expected_output": "ORD-1002 is processing and is not eligible for return because it has not been delivered.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1002"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": [
+      {
+        "tool": "check_return_eligibility",
+        "order_id": "ORD-1002",
+        "status": "processing",
+        "eligible": false
+      }
+    ]
+  },
+  {
+    "id": "grounded_response_006",
+    "category": "grounded_response",
+    "tier": "full",
+    "risk": "high",
+    "test_intent": "negative",
+    "coverage_tags": [
+      "reason_grounding",
+      "expired_not_undelivered"
+    ],
+    "input": "Why exactly is ORD-1031 not returnable? Check the reason rather than assuming it was never delivered.",
+    "expected_output": "ORD-1031 was delivered, but the 30-day return window has expired.",
+    "expected_tools": [
+      {
+        "name": "check_return_eligibility",
+        "arguments": {
+          "order_id": "ORD-1031"
+        }
+      }
+    ],
+    "allowed_tools": [
+      "check_return_eligibility"
+    ],
+    "expected_contains": [],
+    "forbidden_contains": [],
+    "expected_authoritative_facts": {
+      "tool": "check_return_eligibility",
+      "order_id": "ORD-1031",
+      "status": "delivered",
+      "eligible": false,
+      "reason": "The 30-day return window has expired."
+    }
   }
 ]

@@ -72,6 +72,12 @@ def test_case_insensitive_order_id_and_extra_arguments(sample):
     assert evaluate_record(scenario, record).overall_pass
 
 
+def test_order_id_whitespace_matches_tool_normalization(sample):
+    scenario, record = sample
+    record.tool_calls[0]["arguments"] = {"order_id": "  ord-1001  "}
+    assert evaluate_record(scenario, record).overall_pass
+
+
 def test_other_arguments_are_case_sensitive(sample):
     scenario, record = sample
     scenario["expected_tools"][0]["arguments"]["carrier"] = "UPS"
@@ -109,3 +115,19 @@ def test_empty_expectations(sample):
     scenario.update(expected_contains=[], forbidden_contains=[], expected_tools=[])
     record.tool_calls = []
     assert evaluate_record(scenario, record).overall_pass
+
+
+def test_minimal_return_trajectory_passes_but_redundant_status_call_fails(sample):
+    scenario, record = sample
+    scenario.update(expected_contains=[], allowed_tools=["check_return_eligibility"],
+                    expected_tools=[{"name": "check_return_eligibility", "arguments": {"order_id": "ORD-1001"}}])
+    record.tool_calls = deepcopy(scenario["expected_tools"])
+    assert evaluate_record(scenario, record).overall_pass
+    record.tool_calls.insert(0, {"name": "get_order_status", "arguments": {"order_id": "ORD-1001"}})
+    score = evaluate_record(scenario, record)
+    assert not score.tool_pass and not score.overall_pass
+    assert score.argument_pass
+    assert score.failures == [
+        "Tool-policy failure: unexpected_tools=['get_order_status']; "
+        "allowed_tools=['check_return_eligibility']; actual_tools=['get_order_status', 'check_return_eligibility']"
+    ]

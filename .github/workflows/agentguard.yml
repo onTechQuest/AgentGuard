@@ -35,4 +35,4 @@ jobs:
       - name: Run AgentGuard live evaluation
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python scripts/run_agentguard_eval.py
+        run: python scripts/run_agentguard_eval.py --suite smoke

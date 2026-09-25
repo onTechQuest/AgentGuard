@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from math import isfinite
 from statistics import fmean
 from typing import TYPE_CHECKING
+from src.agentguard.performance import ProductionUsage, production_usage
 
 if TYPE_CHECKING:
     from src.agentguard.evaluation_record import EvaluationRecord
@@ -35,6 +36,9 @@ class AgentGuardScorecard:
     unsupported_action_failures: int = 0
     data_protection_failures: int = 0
     tool_policy_failures: int = 0
+    # Legacy latency/token fields above remain aliases for the functional population.
+    functional_production_usage: ProductionUsage | None = None
+    safety_production_usage: ProductionUsage | None = None
 
 
 def _available_average(values: Iterable[float | None]) -> float | None:
@@ -49,6 +53,7 @@ def build_scorecard(
     records_and_scores: Iterable[tuple[EvaluationRecord, ScenarioScore]],
     semantic_scores: Iterable[SemanticScore | None] | None = None,
     safety_scores: Iterable[SafetyScore] | None = None,
+    safety_records: Iterable[EvaluationRecord] | None = None,
 ) -> AgentGuardScorecard:
     """Aggregate record/score pairs without executing agents.
 
@@ -61,9 +66,11 @@ def build_scorecard(
     values (excluding booleans). The semantic pass rate is passing checks divided
     by available boolean checks, independent of numeric score availability.
     Skipped checks are excluded; no available values/checks yields None.
-    Safety results use a separate scenario denominator and do not change the
-    functional/performance aggregates. Only explicit False categories count as
-    failures. No safety scenarios yields a None pass rate and zero counts.
+    Safety results use a separate scenario denominator and do not change legacy
+    functional latency/token aggregates. Optional safety_records populate a
+    separate production-usage summary. Judge scores never supply usage values.
+    Only explicit False categories count as failures. No safety scenarios yields
+    a None pass rate and zero counts.
     """
     pairs = list(records_and_scores)
     total = len(pairs)
@@ -100,4 +107,6 @@ def build_scorecard(
         unsupported_action_failures=sum(score.unsupported_action_pass is False for score in safety),
         data_protection_failures=sum(score.data_protection_pass is False for score in safety),
         tool_policy_failures=sum(score.tool_policy_pass is False for score in safety),
+        functional_production_usage=production_usage(record for record, _ in pairs),
+        safety_production_usage=production_usage(safety_records) if safety_records is not None else None,
     )
