@@ -23,6 +23,12 @@ Every token resets in `finally`, including nested requests and failures. There i
 no shared mutable collector. Observation and serialization errors degrade to
 partial/missing telemetry; they never authorize, suppress or repeat work.
 
+Milestone 13C.1 adds an observation-only `request_budget=` argument and per-call
+attempt records. See [Request budget and attempts](REQUEST_BUDGET.md) for admission
+primitives, cancellation evidence, recovery admission metadata, and the deferred
+operation reliability contract. Default production has an unlimited budget and
+still has no application retry loop or enforced deadline.
+
 ## Spans and authoritative evidence
 
 Spans cover primary routing, completeness validation, optional recovery, policy

@@ -15,9 +15,18 @@ import re
 import time
 from uuid import uuid4
 
+from src.agent.request_budget import (
+    AdmissionEvidence, BudgetAdmissionError, AdmissionDenial, CancellationEvidence,
+    ReliabilityState, RequestBudget,
+)
+
 
 class FailureCategory(str, Enum):
-    TIMEOUT = "TIMEOUT"
+    TIMEOUT = ReliabilityState.TIMEOUT.value
+    DEADLINE_EXHAUSTED = ReliabilityState.DEADLINE_EXHAUSTED.value
+    CANCELLED = ReliabilityState.CANCELLED.value
+    RESULT_ABANDONED = ReliabilityState.RESULT_ABANDONED.value
+    REMOTE_OUTCOME_UNKNOWN = ReliabilityState.REMOTE_OUTCOME_UNKNOWN.value
     RATE_LIMIT = "RATE_LIMIT"
     AUTHENTICATION_FAILURE = "AUTHENTICATION_FAILURE"
     AUTHORIZATION_FAILURE = "AUTHORIZATION_FAILURE"
@@ -51,8 +60,11 @@ def exception_category(error, component):
         chain.append(error)
         error = error.__cause__ or error.__context__
     for candidate in reversed(chain):
+        if isinstance(candidate, BudgetAdmissionError) and candidate.evidence.denial_reason == AdmissionDenial.DEADLINE_EXHAUSTED:
+            return FailureCategory.DEADLINE_EXHAUSTED
         names = {base.__name__ for base in type(candidate).__mro__}
         mapping = (
+            ({"CancelledError"}, FailureCategory.CANCELLED),
             ({"APITimeoutError", "ModelTimeoutError", "TimeoutError"}, FailureCategory.TIMEOUT),
             ({"RateLimitError"}, FailureCategory.RATE_LIMIT),
             ({"AuthenticationError"}, FailureCategory.AUTHENTICATION_FAILURE),
@@ -81,6 +93,29 @@ def exception_category(error, component):
 
 
 @dataclass
+class AttemptTelemetry:
+    logical_call_id: str
+    component: str
+    attempt_number: int
+    started_offset_ms: float
+    duration_ms: float | None = None
+    remaining_budget_before_ms: float | None = None
+    remaining_budget_after_ms: float | None = None
+    retry_eligible: bool | None = None  # No eligibility policy evaluated yet.
+    retry_performed: bool = False
+    retry_reason: str | None = None
+    retry_denial_reason: str | None = None
+    retry_delay_ms: float | None = None
+    status: str = "running"
+    failure_category: FailureCategory | None = None
+    exception_type: str | None = None
+    sdk_visible_requests: int | None = None
+    http_retry_count: int | None = None
+    returned_usage: dict = field(default_factory=dict)
+    usage_known: bool = False
+
+
+@dataclass
 class ComponentSpan:
     component: str
     start_offset_ms: float
@@ -103,6 +138,11 @@ class ComponentSpan:
     model_responses: int | None = None
     response_usage: list[dict] = field(default_factory=list)
     context_characters: dict = field(default_factory=dict)
+    remaining_budget_before_ms: float | None = None
+    remaining_budget_after_ms: float | None = None
+    allocated_allowance_ms: float | None = None  # No stage allocation/enforcement yet.
+    timeout_deadline_source: str | None = None
+    attempts: list[AttemptTelemetry] = field(default_factory=list)
 
 
 @dataclass
@@ -123,6 +163,15 @@ class ProductionExecutionTelemetry:
     required_operation_summary: dict = field(default_factory=dict)
     observed_usage: dict = field(default_factory=dict)
     observation_incomplete: bool = False
+    deadline_budget_ms: float | None = None
+    deadline_exhausted: bool = False
+    cancellation_requested: bool = False
+    cancellation_observed: bool = False
+    cancellation_evidence: CancellationEvidence | None = None
+    result_abandoned: bool = False
+    remote_outcome_unknown: bool = False
+    unknown_usage_attempt_count: int = 0
+    recovery_admission: AdmissionEvidence | None = None
 
     def snapshot(self):
         """JSON-safe allowlisted observations; no source plans or tool payloads."""
@@ -133,6 +182,7 @@ _request = ContextVar("agentguard_telemetry", default=None)
 _span = ContextVar("agentguard_component_span", default=None)
 _started = ContextVar("agentguard_telemetry_started", default=None)
 _failure = ContextVar("agentguard_first_failure", default=None)
+_budget = ContextVar("agentguard_request_budget", default=None)
 
 
 def best_effort(function):
@@ -160,6 +210,11 @@ def _begin(component):
         return None
     span = ComponentSpan(component, (time.perf_counter() - _started.get()) * 1000)
     record.component_spans.append(span)
+    if _budget.get() is not None:
+        span.remaining_budget_before_ms = _budget.get().remaining_ms()
+    if component == "recovery_planner":
+        # Evidence structure only: current recovery does not consult admission.
+        record.recovery_admission = AdmissionEvidence(span.remaining_budget_before_ms)
     return span
 
 
@@ -182,6 +237,9 @@ def fail(error=None, category=None, span=None):
     if error is not None:
         name = type(error).__name__
         span.sanitized_exception_type = name if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]{0,127}", name) else "Exception"
+        from asyncio import CancelledError
+        if isinstance(error, CancelledError) and _budget.get() is not None:
+            _budget.get().observe_cancellation(CancellationEvidence.LOCAL_TASK_CANCELLED)
     if _failure.get() is None:
         _failure.set(span)
 
@@ -193,6 +251,21 @@ def _end(span):
             span.duration_ms = (time.perf_counter() - _started.get()) * 1000 - span.start_offset_ms
         if span.status == "running":
             span.status = "completed"
+        if _budget.get() is not None:
+            span.remaining_budget_after_ms = _budget.get().remaining_ms()
+        _end_attempt(span)
+
+
+def _end_attempt(span):
+    if not span.attempts or span.attempts[-1].status != "running":
+        return
+    attempt = span.attempts[-1]
+    attempt.duration_ms = (time.perf_counter() - _started.get()) * 1000 - attempt.started_offset_ms
+    attempt.status = "completed" if span.status == "running" else span.status
+    attempt.failure_category = span.failure_category
+    attempt.exception_type = span.sanitized_exception_type
+    if _budget.get() is not None:
+        attempt.remaining_budget_after_ms = _budget.get().remaining_ms()
 
 
 @contextmanager
@@ -214,6 +287,12 @@ def model_call(agent, *, default_resolution=True):
     span = _span.get()
     if span is None:
         return
+    _end_attempt(span)
+    attempt = AttemptTelemetry(uuid4().hex, span.component, 1,
+                               (time.perf_counter() - _started.get()) * 1000)
+    span.attempts.append(attempt)
+    if _budget.get() is not None:
+        attempt.remaining_budget_before_ms = _budget.get().remaining_ms()
     span.logical_model_calls += 1
     configured = agent.model
     span.configured_model = configured if isinstance(configured, str) else None
@@ -251,6 +330,12 @@ def usage(available):
                             and (span.total_tokens > 0 or bool(getattr(available, "request_usage_entries", None))))
     if not span.usage_available:
         span.input_tokens = span.output_tokens = span.total_tokens = None
+    if span.attempts:
+        attempt = span.attempts[-1]
+        attempt.sdk_visible_requests = span.sdk_visible_requests
+        attempt.returned_usage = {name: getattr(span, name) for name in
+                                  ("input_tokens", "output_tokens", "total_tokens")}
+        attempt.usage_known = span.usage_available
 
 
 @best_effort
@@ -318,6 +403,16 @@ def operation(item):
 def _finish(record, started, error):
     record.total_latency_ms = (time.perf_counter() - started) * 1000
     record.terminal_status = "failed" if error is not None else "completed"
+    budget = _budget.get()
+    if budget is not None:
+        record.deadline_budget_ms = budget.original_budget_ms
+        record.deadline_exhausted = budget.exhausted()
+        record.cancellation_requested = budget.cancellation_requested
+        record.cancellation_observed = budget.cancellation_observed
+        record.cancellation_evidence = budget.cancellation_evidence
+        record.result_abandoned = budget.result_abandoned
+        record.remote_outcome_unknown = budget.remote_outcome_unknown
+    record.unknown_usage_attempt_count = sum(not a.usage_known for s in record.component_spans for a in s.attempts)
     observed = [s for s in record.component_spans if s.logical_model_calls or s.sdk_visible_requests is not None]
     known = [s for s in observed if s.usage_available]
     record.observed_usage = {
@@ -347,14 +442,19 @@ def observe_request(function):
         # Request creation is also optional; observation failures cannot reject work.
         try:
             record, started = ProductionExecutionTelemetry(), time.perf_counter()
+            budget = kwargs.get("request_budget")
+            if budget is None:
+                budget = RequestBudget()
+            record.request_id = budget.request_id
             label = kwargs.get("request_label")
             record.external_label = label if isinstance(label, str) else None
         except Exception:
-            record, started = None, None
+            record, started, budget = None, None, None
         request_token = _request.set(record)
         start_token = _started.set(started)
         span_token = _span.set(None)
         failure_token = _failure.set(None)
+        budget_token = _budget.set(budget)
         try:
             try:
                 result = function(*args, **kwargs)
@@ -368,6 +468,7 @@ def observe_request(function):
                 _attach(result.context_wrapper, record)
             return result
         finally:
+            _budget.reset(budget_token)
             _failure.reset(failure_token)
             _span.reset(span_token)
             _started.reset(start_token)

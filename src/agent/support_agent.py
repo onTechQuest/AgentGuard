@@ -8,6 +8,7 @@ from openai.types.responses import ResponseFunctionToolCall
 
 from src.agent.tools import orders
 from src.agent import telemetry
+from src.agent.request_budget import RequestBudget
 from src.agent.capability_router import CapabilityRouter, SemanticCapabilityRouter
 from src.agent.request_policy import resolve_request_policy
 from src.agent.data_policy import project_tool_result
@@ -82,7 +83,8 @@ class _PlannedExecutionTrace(ExecutionTrace):
 @telemetry.observe_request
 def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | None = None,
                                recovery_planner: RecoveryPlanner | None = None,
-                               request_label: str | None = None) -> RunResult:
+                               request_label: str | None = None,
+                               request_budget: RequestBudget | None = None) -> RunResult:
     """Route, validate completeness, authorize, execute, and synthesize once.
 
     Runtime operations live in context_wrapper.context, and their projected
@@ -91,6 +93,8 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
     so EvaluationRecord keeps end-to-end production usage and latency.
     Planning failures propagate before execution, without an unrestricted fallback.
     request_label is optional opaque telemetry metadata, never a prompt or policy input.
+    request_budget supplies observation-only deadline evidence in 13C.1. Neither
+    finite deadlines nor cancellation signals enforce admission in this phase.
     """
     with telemetry.observe("primary_router"):
         routed = (router if router is not None else SemanticCapabilityRouter(model=support_agent.model)).route(user_message)
