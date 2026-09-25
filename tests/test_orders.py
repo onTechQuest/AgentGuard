@@ -90,3 +90,25 @@ def test_missing_delivery_date_is_not_eligible(monkeypatch):
 
     assert result["eligible"] is False
     assert "missing or invalid" in result["reason"]
+
+
+@pytest.mark.parametrize("order_id, delivered_at, age, eligible", [
+    ("ORD-1030", "2026-08-11", 30, True),
+    ("ORD-1031", "2026-08-10", 31, False),
+])
+def test_persistent_return_boundary_fixtures(order_id, delivered_at, age, eligible):
+    from datetime import date
+
+    result = check_return_eligibility(order_id)
+    assert result["found"] is True
+    assert result["order"]["status"] == "delivered"
+    assert result["order"]["delivered_at"] == delivered_at
+    assert (orders.RETURN_EVALUATION_DATE - date.fromisoformat(delivered_at)).days == age
+    assert result["eligible"] is eligible
+    assert ("within" if eligible else "expired") in result["reason"]
+
+
+def test_fixture_ids_are_unique_and_original_orders_remain():
+    fixtures = orders.load_orders()
+    assert len({order["order_id"] for order in fixtures}) == len(fixtures)
+    assert {order["order_id"] for order in fixtures} == {"ORD-1001", "ORD-1002", "ORD-1003", "ORD-1030", "ORD-1031"}

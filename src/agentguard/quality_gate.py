@@ -91,9 +91,16 @@ def load_quality_gate_config(path: str | Path) -> dict:
     return config
 
 
-def evaluate_quality_gate(scorecard: AgentGuardScorecard, config: dict) -> QualityGateResult:
-    """Evaluate configured requirements; unavailable metrics fail their checks."""
+def evaluate_quality_gate(scorecard: AgentGuardScorecard, config: dict, *, latency_mode: str = "enforce") -> QualityGateResult:
+    """Evaluate requirements; explicit report-only latency does not qualify it.
+
+    Legacy callers retain enforcement by default. Correctness CLI modes defer
+    latency qualification to repeated sampling; all other gates remain enforced.
+    A report-only check has passed=None and enforced=False, never a false PASS.
+    """
     _validate_config(config)
+    if latency_mode not in {"enforce", "report_only"}:
+        raise ValueError("Unsupported latency gate mode")
     checks = []
     failures = []
     for metric, requirement in REQUIREMENTS.items():
@@ -102,6 +109,11 @@ def evaluate_quality_gate(scorecard: AgentGuardScorecard, config: dict) -> Quali
         actual = getattr(scorecard, SEMANTIC_METRICS.get(metric, metric))
         threshold = config["quality_gates"][metric][requirement]
         comparison = ">=" if requirement == "minimum" else "<="
+        if metric == "p95_latency_ms" and latency_mode == "report_only":
+            checks.append({"metric": metric, "actual": actual, "threshold": threshold,
+                           "comparison": comparison, "passed": None, "enforced": False,
+                           "reason": "Latency qualification requires the repeated performance suite."})
+            continue
         valid = _is_number(actual)
         passed = valid and (actual >= threshold if requirement == "minimum" else actual <= threshold)
         checks.append({

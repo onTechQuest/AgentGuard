@@ -15,7 +15,7 @@
     "carrier": null,
     "tracking_number": null,
     "estimated_delivery": "2026-09-15",
-    "total": 89.50
+    "total": 89.5
   },
   {
     "order_id": "ORD-1003",
@@ -25,6 +25,26 @@
     "carrier": "FedEx",
     "tracking_number": "784512349876",
     "estimated_delivery": "2026-09-08",
-    "total": 229.00
+    "total": 229.0
+  },
+  {
+    "order_id": "ORD-1030",
+    "customer_id": "CUST-RETURN-30",
+    "status": "delivered",
+    "delivered_at": "2026-08-11",
+    "carrier": "UPS",
+    "tracking_number": "BOUNDARY30",
+    "estimated_delivery": "2026-08-11",
+    "total": 30.0
+  },
+  {
+    "order_id": "ORD-1031",
+    "customer_id": "CUST-RETURN-31",
+    "status": "delivered",
+    "delivered_at": "2026-08-10",
+    "carrier": "UPS",
+    "tracking_number": "BOUNDARY31",
+    "estimated_delivery": "2026-08-10",
+    "total": 31.0
   }
 ]

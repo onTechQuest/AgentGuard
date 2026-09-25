@@ -1,6 +1,8 @@
-"""Run AgentGuard end to end: python scripts/run_agentguard_eval.py."""
+"""Run AgentGuard end to end: python scripts/run_agentguard_eval.py --suite smoke."""
 
-import json
+import argparse
+from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
 import sys
 
@@ -9,6 +11,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.agentguard.evaluation_record import execute_scenario
+from src.agentguard.datasets import DatasetValidationError, RISK_LEVELS, SUITES, TEST_INTENTS, load_datasets
 from src.agentguard.quality_gate import evaluate_quality_gate, load_quality_gate_config
 from src.agentguard.scorecard import build_scorecard
 from src.agentguard.scoring import evaluate_record
@@ -21,7 +24,7 @@ GATE_LABELS = {
     "tool_accuracy": "Tool Accuracy",
     "argument_accuracy": "Argument Accuracy",
     "p95_latency_ms": "P95 Latency",
-    "average_tokens_per_run": "Token Usage",
+    "average_tokens_per_run": "Functional Production Token Usage",
     "failed_scenarios": "Failed Scenarios",
     "answer_relevancy": "Answer Relevancy",
     "correctness": "Correctness",
@@ -35,19 +38,61 @@ GATE_LABELS = {
 }
 
 
-def main() -> int:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Evaluate AgentGuard and apply release quality gates.")
+    parser.add_argument(
+        "--suite", choices=(*SUITES, "performance"), default="smoke",
+        help="smoke: correctness baseline; full: regression coverage; performance: repeated production latency qualification",
+    )
+    parser.add_argument("--repetitions", type=int, help="Performance only: repetitions per functional smoke scenario (default 5)")
+    parser.add_argument("--report", type=Path, help="Performance only: generated JSON report path")
+    args = parser.parse_args(argv)
+    if args.suite != "performance" and (args.repetitions is not None or args.report is not None):
+        parser.error("--repetitions and --report require --suite performance")
+    if args.suite == "performance" and args.repetitions is not None and args.repetitions < 5:
+        parser.error("Performance qualification requires at least five repetitions")
+    return args
+
+
+def print_production_usage(label, usage, threshold):
+    print(f"\n{label} PRODUCTION USAGE")
+    print(f"Execution Count: {usage.execution_count}")
+    print(f"Latency Observations: {len(usage.latency_observations)}")
+    for name, value in (("Average Latency", usage.average_latency_ms), ("Maximum Latency", usage.maximum_latency_ms)):
+        print(f"{name}: {value:.0f} ms" if value is not None else f"{name}: unavailable")
+    tokens = usage.average_tokens_per_execution
+    print(f"Average Production Tokens/Execution: {tokens:g}" if tokens is not None else "Average Production Tokens/Execution: unavailable")
+    print(f"Token Observations: {usage.token_observation_count}")
+    if usage.p95_latency_ms is not None:
+        print(f"Observed P95 Latency: {usage.p95_latency_ms:.0f} ms "
+              "(report-only; correctness sample is insufficient for release latency qualification)")
+    exceeded = usage.exceeding(threshold)
+    print(f"Observations > {threshold:g} ms: {len(exceeded)}")
+    for observation in exceeded:
+        print(f"  {observation.scenario_id}: {observation.latency_ms:.0f} ms")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
     print("AGENTGUARD EVALUATION", flush=True)
+    print(f"Evaluation Suite: {args.suite.upper()}", flush=True)
+    if args.suite == "performance":
+        from scripts.audit_latency import main as performance_main
+        return performance_main([
+            "--qualify", "--repetitions", str(args.repetitions or 5),
+            "--output", str(args.report or PROJECT_ROOT / "reports/performance_qualification.json"),
+        ], project_root=PROJECT_ROOT)
     try:
-        with (PROJECT_ROOT / "evals/datasets/functional.json").open(encoding="utf-8") as file:
-            scenarios = json.load(file)
-        with (PROJECT_ROOT / "evals/datasets/safety.json").open(encoding="utf-8") as file:
-            safety_scenarios = json.load(file)
+        datasets = load_datasets(PROJECT_ROOT / "evals/datasets", suite=args.suite)
+        scenarios, safety_scenarios = datasets.functional, datasets.safety
         config = load_quality_gate_config(PROJECT_ROOT / "config/quality-gates.yaml")
         for scenario in scenarios:
             if not isinstance(scenario["expected_output"], str):
                 raise ValueError("expected_output must be a string")
     except Exception as error:
         print(f"Evaluation setup failed ({type(error).__name__}).")
+        if isinstance(error, DatasetValidationError):
+            print(str(error))
         print("Check both datasets, functional expected_output fields, and quality gate YAML.\nFINAL DECISION: FAIL")
         return 1
 
@@ -57,6 +102,10 @@ def main() -> int:
         stage = "execution"
         try:
             record = execute_scenario(scenario)
+            if record.execution_error is not None:
+                print(f"\nScenario {scenario['id']}: {record.execution_error}.")
+                print("Evaluation incomplete.\nFINAL DECISION: FAIL")
+                return 1
             stage = "deterministic evaluation"
             score = evaluate_record(scenario, record)
             stage = "semantic evaluation"
@@ -70,10 +119,16 @@ def main() -> int:
         semantic_scores.append(semantic_score)
 
     safety_scores = []
+    safety_records = []
     for scenario in safety_scenarios:
         stage = "execution"
         try:
             record = execute_scenario(scenario)
+            if record.execution_error is not None:
+                print(f"\nScenario {scenario['id']}: {record.execution_error}.")
+                print("Evaluation incomplete.\nFINAL DECISION: FAIL")
+                return 1
+            safety_records.append(record)
             stage = "safety evaluation"
             safety_scores.append(safety_evaluate_record(scenario, record))
         except Exception as error:
@@ -82,9 +137,26 @@ def main() -> int:
             return 1
 
     scorecard = build_scorecard(
-        records_and_scores, semantic_scores=semantic_scores, safety_scores=safety_scores,
+        records_and_scores, semantic_scores=semantic_scores, safety_scores=safety_scores, safety_records=safety_records,
     )
-    gate = evaluate_quality_gate(scorecard, config)
+    gate = evaluate_quality_gate(scorecard, config, latency_mode="report_only")
+
+    executed = [*scenarios, *safety_scenarios]
+    print("\nCOVERAGE")
+    print(f"Scenarios Executed: {len(executed)}")
+    print(f"Functional: {len(scenarios)}")
+    print(f"Safety: {len(safety_scenarios)}")
+    print("Scenarios by Category:")
+    for category, count in sorted(Counter(scenario["category"] for scenario in executed).items()):
+        print(f"  {category}: {count}")
+    print("Scenarios by Risk Level:")
+    risks = Counter(scenario["risk"] for scenario in executed)
+    for risk in RISK_LEVELS:
+        print(f"  {risk}: {risks[risk]}")
+    print("Scenarios by Test Intent:")
+    intents = Counter(scenario["test_intent"] for scenario in executed)
+    for intent in TEST_INTENTS:
+        print(f"  {intent}: {intents[intent]}")
 
     print("\nSCENARIOS")
     print(f"Total: {scorecard.total_scenarios}")
@@ -111,10 +183,10 @@ def main() -> int:
     print(f"Data Protection Failures: {scorecard.data_protection_failures}")
     print(f"Tool Policy Failures: {scorecard.tool_policy_failures}")
     print("\nPERFORMANCE")
-    print(f"Average Latency: {scorecard.average_latency_ms:.0f} ms")
-    print(f"P95 Latency: {scorecard.p95_latency_ms:.0f} ms")
-    tokens = scorecard.average_tokens_per_run
-    print(f"Average Tokens/Run: {tokens:g}" if tokens is not None else "Average Tokens/Run: unavailable")
+    print("Correctness workload observations; use --suite performance for latency qualification.")
+    latency_threshold = config["quality_gates"]["p95_latency_ms"]["maximum"]
+    print_production_usage("FUNCTIONAL", scorecard.functional_production_usage, latency_threshold)
+    print_production_usage("SAFETY", scorecard.safety_production_usage, latency_threshold)
 
     printed_diagnostics = False
     for (_, score), semantic in zip(records_and_scores, semantic_scores):
@@ -136,16 +208,22 @@ def main() -> int:
                 print(f"  - {failure}")
 
     for score in safety_scores:
-        if not score.passed:
+        if not score.passed or score.prompt_injection_disagreement:
             if not printed_diagnostics:
                 print("\nSCENARIO DIAGNOSTICS")
                 printed_diagnostics = True
             print(f"{score.scenario_id} (safety)")
             for failure in score.failures:
                 print(f"  - {failure}")
+            if score.prompt_injection_disagreement:
+                print(f"  - {score.prompt_injection_diagnostic}")
 
     print("\nQUALITY GATES")
     for check in gate.checks:
+        if check.get("enforced") is False:
+            print(f"{GATE_LABELS[check['metric']]} REPORT ONLY: {check['reason']} "
+                  f"Threshold remains {check['comparison']} {check['threshold']:g} ms.")
+            continue
         status = "PASS" if check["passed"] else "FAIL"
         print(f"{GATE_LABELS[check['metric']]} {status}")
     for failure in gate.failures:

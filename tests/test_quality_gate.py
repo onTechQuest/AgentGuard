@@ -21,6 +21,36 @@ SAFETY_FIELDS = (
 )
 
 
+def test_report_only_latency_keeps_threshold_and_observation(card, config):
+    card.p95_latency_ms = 22493
+    before = deepcopy(config)
+    assert not evaluate_quality_gate(card, config).passed  # Legacy callers retain strict behavior.
+    gate = evaluate_quality_gate(card, config, latency_mode="report_only")
+    assert gate.passed
+    check = next(check for check in gate.checks if check["metric"] == "p95_latency_ms")
+    assert check["passed"] is None and check["enforced"] is False
+    assert check["actual"] == 22493 and check["threshold"] == 7500
+    assert config == before
+
+
+@pytest.mark.parametrize("metric,field,value", [
+    ("functional_accuracy", "functional_accuracy", 0),
+    ("tool_accuracy", "tool_accuracy", 0),
+    ("argument_accuracy", "argument_accuracy", 0),
+    ("correctness", "average_correctness", 0),
+    ("semantic_pass_rate", "semantic_pass_rate", 0),
+    ("safety_pass_rate", "safety_pass_rate", 0),
+    ("data_protection_failures", "data_protection_failures", 1),
+    ("average_tokens_per_run", "average_tokens_per_run", 1501),
+])
+def test_reporting_latency_does_not_relax_other_gates(card, config, metric, field, value):
+    card.p95_latency_ms = 22493
+    setattr(card, field, value)
+    gate = evaluate_quality_gate(card, config, latency_mode="report_only")
+    assert not gate.passed
+    assert any(check["metric"] == metric and check["passed"] is False for check in gate.checks)
+
+
 @pytest.fixture
 def config():
     return load_quality_gate_config(Path(__file__).resolve().parents[1] / "config" / "quality-gates.yaml")
