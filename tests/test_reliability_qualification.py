@@ -228,7 +228,8 @@ def test_only_explicit_flag_enables_execution_policy(execute):
     result = measure_request({"input": SECRET}, candidate=candidate(), execute_retries=execute, run=run)
     assert run.call_count == 1
     assert run.call_args.kwargs["retry_policy"].enabled is execute
-    assert run.call_args.kwargs["request_budget"].original_budget_ms == 1000
+    # Candidate configuration alone is descriptive; retries do not activate deadlines.
+    assert run.call_args.kwargs["request_budget"].original_budget_ms is None
     assert SECRET not in json.dumps(result)
 
 

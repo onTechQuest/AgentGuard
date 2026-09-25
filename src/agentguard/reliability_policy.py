@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 from src.agent.request_budget import RequestBudget, RecoveryBudgetPolicy
+from src.agent.qualification_budget import QualificationBudgetPolicy
 from src.agent.retry_policy import (
     Backoff, DeliveryCertainty, FailureEvidence, ModelRetryPolicy,
     RequestRetryState, milliseconds,
@@ -30,11 +31,22 @@ class PolicyCandidate:
     request_budget_ms: float | None = None
     retry_policy: ModelRetryPolicy = field(default_factory=ModelRetryPolicy.disabled)
     recovery_budget_policy: RecoveryBudgetPolicy = field(default_factory=RecoveryBudgetPolicy)
+    qualification_budget_policy: QualificationBudgetPolicy | None = None
 
     def __post_init__(self):
         label(self.name)
         if self.request_budget_ms is not None:
             milliseconds(self.request_budget_ms, "request_budget_ms")
+        if self.qualification_budget_policy is not None:
+            if not isinstance(self.qualification_budget_policy, QualificationBudgetPolicy):
+                raise ValueError("Invalid qualification budget policy")
+            if self.request_budget_ms != self.qualification_budget_policy.request_deadline_ms:
+                raise ValueError("Candidate request budget must match the qualification request deadline")
+            if self.recovery_budget_policy != RecoveryBudgetPolicy():
+                raise ValueError("Candidate must select one recovery budget policy")
+            if (self.retry_policy.enabled or self.retry_policy.max_attempts != 1
+                    or self.retry_policy.shared_extra_attempts_per_request != 0):
+                raise ValueError("Deadline qualification requires a disabled, single-attempt retry policy")
         if self.retry_policy.backoff is not None and self.retry_policy.backoff.jitter is not None:
             raise ValueError("Qualification candidates require reproducible backoff without callable jitter")
 
@@ -85,7 +97,7 @@ def load_qualification_config(path):
     _keys(data, {"dataset_suite", "repetitions", "candidates", "execution_candidate", "recovery_scenario_ids"})
     candidates = []
     for raw in data["candidates"]:
-        _keys(raw, {"name", "request_budget_ms", "retry_policy", "recovery_budget_policy"})
+        _keys(raw, {"name", "request_budget_ms", "retry_policy", "recovery_budget_policy", "qualification_budget_policy"})
         retry = dict(raw.get("retry_policy", {}))
         _keys(retry, ModelRetryPolicy.__dataclass_fields__)
         if retry.get("backoff") is not None:
@@ -93,8 +105,12 @@ def load_qualification_config(path):
             retry["backoff"] = Backoff(**retry["backoff"])
         recovery = raw.get("recovery_budget_policy", {})
         _keys(recovery, RecoveryBudgetPolicy.__dataclass_fields__)
+        budget = raw.get("qualification_budget_policy")
+        if budget is not None:
+            _keys(budget, QualificationBudgetPolicy.__dataclass_fields__)
+            budget = QualificationBudgetPolicy(**budget)
         candidates.append(PolicyCandidate(raw["name"], raw.get("request_budget_ms"),
-                                          ModelRetryPolicy(**retry), RecoveryBudgetPolicy(**recovery)))
+                                          ModelRetryPolicy(**retry), RecoveryBudgetPolicy(**recovery), budget))
     return QualificationConfig(data["dataset_suite"], data["repetitions"], tuple(candidates),
                                data["execution_candidate"], tuple(data.get("recovery_scenario_ids", [])))
 

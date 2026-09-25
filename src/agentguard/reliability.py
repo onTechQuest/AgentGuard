@@ -74,6 +74,9 @@ def _attempt(raw, component):
                   lower_layer_retries_configured=choice_bool(raw.get("lower_layer_retries_configured")),
                   retry_performed=raw.get("retry_performed") is True,
                   retry_after_invalid=raw.get("retry_after_invalid") is True,
+                  late_completion=raw.get("late_completion") is True,
+                  result_accepted=choice_bool(raw.get("result_accepted")),
+                  result_abandoned=raw.get("result_abandoned") is True,
                   usage_known=raw.get("usage_known") is True,
                   returned_usage={key: number(raw.get("returned_usage", {}).get(key)) for key in TOKEN_FIELDS})
     return result
@@ -83,15 +86,26 @@ def choice_bool(value):
     return value if type(value) is bool else None
 
 
-def measure_request(scenario, *, candidate, execute_retries=False, run=None, clock=time.perf_counter):
+def validate_enforcement(candidate, enforce, execute_retries):
+    if type(enforce) is not bool:
+        raise ValueError("Invalid candidate enforcement flag")
+    if enforce and (execute_retries or candidate.qualification_budget_policy is None):
+        raise ValueError("Budget enforcement requires a stage policy and disabled retries")
+
+
+def measure_request(scenario, *, candidate, execute_retries=False, enforce_candidate_budget=False,
+                    run=None, clock=time.perf_counter):
     """Execute once. Extract only measurements; never retain prompts or results."""
     run = run or run_support_agent_detailed
-    budget = RequestBudget(candidate.request_budget_ms)
+    validate_enforcement(candidate, enforce_candidate_budget, execute_retries)
+    budget = RequestBudget(candidate.request_budget_ms if enforce_candidate_budget else None)
+    budget_options = ({"qualification_budget_policy": candidate.qualification_budget_policy}
+                      if enforce_candidate_budget else {})
     started = clock()
     evidence = None
     try:
         result = run(scenario["input"], request_budget=budget,
-                     recovery_budget_policy=candidate.recovery_budget_policy,
+                     **budget_options,
                      retry_policy=candidate.retry_policy if execute_retries else ModelRetryPolicy.disabled())
     except Exception as error:
         raw = telemetry.snapshot(getattr(error, "production_telemetry", None)) or {}
@@ -103,6 +117,8 @@ def measure_request(scenario, *, candidate, execute_retries=False, run=None, clo
         status = "completed"
     elapsed = (clock() - started) * 1000
     row = sanitize_measurement(raw, status=status, elapsed=elapsed)
+    row["candidate"] = candidate.name
+    row["enforce_candidate_budget"] = enforce_candidate_budget
     if evidence is not None:
         row["failure_category"] = evidence.category.value
         # Default-disabled retries do not classify individual attempts. Enrich
@@ -140,6 +156,7 @@ def sanitize_measurement(raw, *, status, elapsed):
                           for key in TOKEN_FIELDS} for component in MODEL_COMPONENTS}
     tokens["production_total"] = {key: number(raw.get("observed_usage", {}).get(key)) for key in TOKEN_FIELDS}
     recovery_span = next((s for s in spans if s["component"] == "recovery_planner"), {})
+    recovery_admission = raw.get("recovery_admission") or {}
     return {
         "status": status, "failure_category": choice(raw.get("terminal_failure_category"), set(telemetry.FailureCategory)),
         "failure_component": choice(raw.get("terminal_failure_component"), COMPONENTS),
@@ -153,6 +170,62 @@ def sanitize_measurement(raw, *, status, elapsed):
         "observation_incomplete": not raw or raw.get("observation_incomplete") is True,
         "actual_extra_attempts": number(raw.get("retry_attempts_total")),
         "cancelled": raw.get("cancellation_requested") is True or raw.get("cancellation_observed") is True,
+        "cancellation_requested": raw.get("cancellation_requested") is True,
+        "cancellation_observed": raw.get("cancellation_observed") is True,
+        "result_abandoned": raw.get("result_abandoned") is True,
+        "request_deadline_ms": number(raw.get("deadline_budget_ms")),
+        "request_deadline_exhausted": raw.get("deadline_exhausted") is True,
+        "completed_operation_count": _operation_count(raw, "completed"),
+        "incomplete_operation_count": _operation_count(raw, "incomplete"),
+        "recovery_admission": {
+            **{k: number(recovery_admission.get(k)) for k in
+               ("remaining_budget_ms", "required_downstream_reserve_ms", "minimum_work_ms", "allowance_ms")},
+            "admitted": choice_bool(recovery_admission.get("admitted")),
+            "denial_reason": choice(recovery_admission.get("denial_reason"), set(telemetry.AdmissionDenial)),
+        },
+        "stage_budgets": [_stage_measurement(s) for s in spans if s["component"] in MODEL_COMPONENTS],
+    }
+
+
+def _operation_count(raw, state):
+    items = raw.get("required_operation_summary", {}).get(state)
+    return len(items) if isinstance(items, list) else None
+
+
+def _stage_measurement(span):
+    return {
+        "component": span["component"],
+        **{k: number(span.get(k)) for k in ("allocated_allowance_ms", "configured_stage_cap_ms",
+           "required_downstream_reserve_ms", "remaining_budget_before_ms", "remaining_budget_after_ms")},
+        "stage_admitted": choice_bool(span.get("stage_admitted")),
+        "result_accepted": choice_bool(span.get("result_accepted")),
+        "late_completion": span.get("late_completion") is True,
+        "result_abandoned": span.get("result_abandoned") is True,
+        "deadline_source": choice(span.get("timeout_deadline_source"),
+                                  {"request_budget", "qualification_stage_within_request"}),
+        "allowance_exceeded": (span.get("late_completion") is True
+                               and span.get("configured_stage_cap_ms") is not None
+                               and (number(span.get("duration_ms")) or 0) >= span["configured_stage_cap_ms"]),
+    }
+
+
+def summarize_enforcement(rows):
+    rejected = [r for r in rows if r["failure_category"] == "DEADLINE_EXHAUSTED"]
+    return {
+        "completed_successes": sum(r["status"] == "completed" for r in rows),
+        "deadline_rejections": len(rejected),
+        "rejection_stages": dict(Counter(r["failure_component"] for r in rejected)),
+        "late_completions": sum(s["late_completion"] for r in rows for s in r.get("stage_budgets", [])),
+        "abandoned_results": sum(r.get("result_abandoned", False) for r in rows),
+        "stage_allowance_exceedances": dict(Counter(s["component"] for r in rows
+            for s in r.get("stage_budgets", []) if s["allowance_exceeded"])),
+        "recovery_admissions": dict(Counter(str(r.get("recovery_admission", {}).get("admitted")) for r in rows)),
+        "rejected_request_usage": {k: _sum_known(r["tokens"]["production_total"][k] for r in rejected) for k in TOKEN_FIELDS},
+        "rejected_request_usage_completeness": dict(Counter(r["usage_completeness"] for r in rejected)),
+        "rejected_termination_latency_ms": stats(r["latency_ms"]["total_request"] for r in rejected),
+        "completed_operations_before_rejection": sum(r.get("completed_operation_count") or 0 for r in rejected),
+        "cancellation_requested": sum(r.get("cancellation_requested", False) for r in rows),
+        "cancellation_observed": sum(r.get("cancellation_observed", False) for r in rows),
     }
 
 
@@ -248,12 +321,14 @@ def write_report(path, report):
     temporary.replace(path)
 
 
-def qualify(config, datasets, *, output, project_root, execute_retries=False, measure=None, source="production"):
+def qualify(config, datasets, *, output, project_root, execute_retries=False, enforce_candidate_budget=False,
+            measure=None, source="production"):
     """Sequential dataset passes; one request per row, never rerun for candidates."""
     if type(execute_retries) is not bool or source not in {"production", "controlled"}:
         raise ValueError("Invalid qualification execution mode")
     if execute_retries and not config.execution.retry_policy.enabled:
         raise ValueError("Controlled retries require an enabled execution candidate")
+    validate_enforcement(config.execution, enforce_candidate_budget, execute_retries)
     output = Path(output).resolve()
     reports = (Path(project_root) / "reports").resolve()
     if not output.is_relative_to(reports) or output.suffix != ".json" or output.exists():
@@ -267,6 +342,9 @@ def qualify(config, datasets, *, output, project_root, execute_retries=False, me
         "schema_version": 1, "started_at": datetime.now(timezone.utc).isoformat(), "git_commit": git_commit(project_root),
         "suite": "reliability", "configuration": config.snapshot(), "execute_retries": execute_retries,
         "shadow_policy_enabled": True,
+        "enforce_candidate_budget": enforce_candidate_budget,
+        "effective_budget_policy": (config.execution.snapshot()["qualification_budget_policy"]
+                                    if enforce_candidate_budget else None),
         "effective_retry_policy": (config.execution if execute_retries else
                                    type(config.execution)("effective_no_retry")).snapshot()["retry_policy"],
         "sdk_versions": {name: version(name) for name in ("openai-agents", "openai")},
@@ -286,7 +364,8 @@ def qualify(config, datasets, *, output, project_root, execute_retries=False, me
         for kind, scenario in scenarios:
             report["in_progress"] = {"scenario_id": scenario["id"], "dataset": kind, "repetition": repetition}
             write_report(output, report)
-            row = measure(scenario, candidate=config.execution, execute_retries=execute_retries)
+            options = {"enforce_candidate_budget": True} if enforce_candidate_budget else {}
+            row = measure(scenario, candidate=config.execution, execute_retries=execute_retries, **options)
             row.update(scenario_id=scenario["id"], dataset=kind, repetition=repetition, source=source,
                        recovery_probe=scenario["id"] in config.recovery_scenario_ids)
             row["shadow_decisions"] = shadow_observation(row, config.candidates)
@@ -296,7 +375,8 @@ def qualify(config, datasets, *, output, project_root, execute_retries=False, me
     report.update(complete=True, finished_at=datetime.now(timezone.utc).isoformat(),
                   effective_models=sorted({m for r in report["observations"] for m in r["models"]}),
                   configured_models=sorted({m for r in report["observations"] for m in r["configured_models"]}),
-                  summary=summarize(report["observations"], config.candidates))
+                  summary=summarize(report["observations"], config.candidates),
+                  enforcement_summary=summarize_enforcement(report["observations"]))
     write_report(output, report)
     return report
 
@@ -304,6 +384,10 @@ def qualify(config, datasets, *, output, project_root, execute_retries=False, me
 def print_summary(report):
     print("RELIABILITY QUALIFICATION (descriptive; no release decision)")
     print(f"Executions: {len(report['observations'])}; actual retries enabled: {report['execute_retries']}")
+    print(f"Candidate deadline enforcement: {report.get('enforce_candidate_budget', False)}; "
+          f"policy: {report.get('effective_budget_policy')}")
+    if report.get("enforce_candidate_budget"):
+        print(f"Observed enforcement: {report['enforcement_summary']}")
     for population, summary in report["summary"]["populations"].items():
         latency = summary["latency_ms"]["total_request"]
         print(f"{population}: N={summary['count']}, mean={latency.get('mean')}, max={latency.get('max')}, "

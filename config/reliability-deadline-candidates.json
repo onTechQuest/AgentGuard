@@ -1,0 +1,29 @@
+{
+  "dataset_suite": "smoke",
+  "repetitions": 1,
+  "execution_candidate": "candidate_L",
+  "candidates": [
+    {
+      "name": "candidate_L",
+      "request_budget_ms": 10000,
+      "qualification_budget_policy": {
+        "request_deadline_ms": 10000,
+        "router_allowance_ms": 4000,
+        "recovery_reserve_ms": 2000,
+        "synthesis_allowance_ms": 3000
+      },
+      "retry_policy": {"enabled": false, "max_attempts": 1, "shared_extra_attempts_per_request": 0}
+    },
+    {
+      "name": "candidate_R",
+      "request_budget_ms": 20000,
+      "qualification_budget_policy": {
+        "request_deadline_ms": 20000,
+        "router_allowance_ms": 13000,
+        "recovery_reserve_ms": 3000,
+        "synthesis_allowance_ms": 6000
+      },
+      "retry_policy": {"enabled": false, "max_attempts": 1, "shared_extra_attempts_per_request": 0}
+    }
+  ]
+}

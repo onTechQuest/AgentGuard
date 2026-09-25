@@ -49,13 +49,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--qualification-config", type=Path, help="Reliability only: explicit candidate configuration JSON")
     parser.add_argument("--execution-candidate", help="Reliability only: select the named execution candidate")
     parser.add_argument("--execute-retries", action="store_true", help="Reliability only: explicitly enable the selected retry candidate")
+    parser.add_argument("--enforce-candidate-budget", action="store_true",
+                        help="Reliability only: explicitly enforce experimental request/stage budgets; no retries")
     args = parser.parse_args(argv)
     if args.suite not in {"performance", "reliability"} and (args.repetitions is not None or args.report is not None):
         parser.error("--repetitions and --report require a qualification suite")
     if args.suite == "performance" and args.repetitions is not None and args.repetitions < 5:
         parser.error("Performance qualification requires at least five repetitions")
-    if args.suite != "reliability" and (args.qualification_config or args.execution_candidate or args.execute_retries):
+    if args.suite != "reliability" and (args.qualification_config or args.execution_candidate or args.execute_retries or args.enforce_candidate_budget):
         parser.error("Reliability policy options require --suite reliability")
+    if args.enforce_candidate_budget and args.execute_retries:
+        parser.error("Candidate budget qualification cannot enable retries")
     if args.suite == "reliability":
         if args.qualification_config is None:
             parser.error("Reliability requires --qualification-config")
@@ -97,7 +101,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             datasets = load_datasets(PROJECT_ROOT / "evals/datasets", suite=config.dataset_suite)
             report = qualify(config, datasets, project_root=PROJECT_ROOT,
                              output=args.report or PROJECT_ROOT / "reports/reliability_qualification.json",
-                             execute_retries=args.execute_retries)
+                             execute_retries=args.execute_retries,
+                             enforce_candidate_budget=args.enforce_candidate_budget)
         except Exception as error:
             # Configuration/provider error messages can contain sensitive input.
             print(f"Reliability qualification incomplete ({type(error).__name__}). Check configuration and report destination.")

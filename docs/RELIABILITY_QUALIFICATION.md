@@ -8,8 +8,12 @@ The mode does not inject provider faults or intentionally generate rate limits.
 
 Normal application, smoke, full and performance behavior remains unchanged.
 Production retries remain disabled. No production deadline or winning retry
-policy is selected. The only shipped qualification configuration is an unlimited,
-single-pass, no-retry baseline; it is not a latency qualification threshold.
+policy is selected. The baseline configuration remains unlimited, single-pass,
+and no-retry. The separate experimental
+[`reliability-deadline-candidates.json`](../config/reliability-deadline-candidates.json)
+defines L/R hypotheses; presence or selection alone does not enforce them.
+See [Controlled deadline qualification](CONTROLLED_DEADLINE_QUALIFICATION.md)
+for hierarchical budget semantics and the required opt-in flag.
 
 ## Commands for later authorized runs
 
@@ -34,9 +38,10 @@ python scripts/run_agentguard_eval.py --suite reliability --qualification-config
 
 The second command requires the named, enabled candidate in that local file.
 No enabled numeric candidate is shipped. `--execute-retries` defaults to false;
-selecting a candidate alone does not enable retries. Its request budget and
-recovery reserves still apply to the executed request, and the report separately
-records its configured policy and the effective disabled retry policy. The flag
+selecting a candidate alone does not enable retries or deadlines. Candidate
+request budgets and recovery reserves are descriptive unless deadline enforcement
+is explicitly selected as described below. The report separately records
+configured and effective policies. The retry flag
 with a disabled candidate fails setup before any execution.
 
 Reports must be new `.json` files under this project's gitignored `reports/`.
@@ -55,12 +60,13 @@ contains only these fields:
 | --- | --- |
 | `dataset_suite` | `smoke` or `full`, using the existing validated dataset loader. |
 | `repetitions` | Positive explicit repetition count; no hidden warmup exclusions. |
-| `execution_candidate` | One unique named candidate governing actual request budget/reserves. |
+| `execution_candidate` | One unique named candidate; actual enforcement requires its corresponding explicit CLI opt-in. |
 | `recovery_scenario_ids` | Optional existing selected scenario IDs marking a recovery-probe cohort. |
 | `candidates` | Named configurations compared by shadow analysis and deadline statistics. |
 
 Each candidate has `name`, optional `request_budget_ms` (`null` means unlimited),
-`retry_policy`, and optional `recovery_budget_policy`. Retry fields are those of
+`retry_policy`, optional `recovery_budget_policy`, and optional
+`qualification_budget_policy`. Retry fields are those of
 [ModelRetryPolicy](MODEL_RETRY_POLICY.md): enablement, per-call maximum, shared
 extra allowance, failure categories, selected 5xx statuses, maximum delay,
 minimum useful attempt budget, downstream reserve and Retry-After policy.
@@ -69,8 +75,9 @@ intentionally excludes callable jitter to keep comparisons reproducible.
 
 Recovery policy supports `recovery_allowance_ms`,
 `required_execution_reserve_ms`, `synthesis_reserve_ms` and
-`completion_reserve_ms`. Runtime and shadow recovery admission use the greater
-minimum allowance and downstream reserve from retry/recovery policies. Unknown
+`completion_reserve_ms`. These legacy candidate fields remain shadow inputs.
+Direct runtime callers can still explicitly pass a `RecoveryBudgetPolicy` with
+a finite `RequestBudget`; that existing API is unchanged. Unknown
 configuration fields, duplicate candidates, unsupported policies and invalid
 probe IDs fail before requests. Dataset expectations and runtime routing remain
 unchanged; scenario IDs only select report cohorts.

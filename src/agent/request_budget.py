@@ -170,6 +170,20 @@ class RequestBudget:
         object.__setattr__(child, "_signals", self._signals)
         return child
 
+    def limit(self, cap_ms) -> "RequestBudget":
+        """Narrow a request from its original start, including exhausted requests.
+
+        This installs a bound, not an admission decision. Admission still occurs
+        inside the observed execution boundary, so rejected work retains telemetry.
+        """
+        _milliseconds(cap_ms, "cap_ms")
+        cap = min(self.original_budget_ms, cap_ms) if self.original_budget_ms is not None else cap_ms
+        bounded = RequestBudget(cap, self.request_id, self.clock)
+        object.__setattr__(bounded, "started_at_monotonic", self.started_at_monotonic)
+        object.__setattr__(bounded, "deadline_monotonic", self.started_at_monotonic + cap / 1000)
+        object.__setattr__(bounded, "_signals", self._signals)
+        return bounded
+
     @property
     def cancellation_requested(self) -> bool:
         return self._signals.cancellation_requested

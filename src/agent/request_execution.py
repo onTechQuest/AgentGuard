@@ -11,12 +11,14 @@ from functools import wraps
 
 from src.agent import telemetry
 from src.agent.request_budget import (
-    AdmissionDenial, AdmissionEvidence, RequestBudgetRejected, RequestDeadlineExceeded,
+    AdmissionDenial, AdmissionEvidence, BudgetAdmissionError, RequestBudgetRejected, RequestDeadlineExceeded,
 )
 
 
 _active_budget = ContextVar("agentguard_execution_budget", default=None)
 _recovery_policy = ContextVar("agentguard_recovery_budget_policy", default=None)
+_qualification_policy = ContextVar("agentguard_qualification_budget_policy", default=None)
+_stage_budget = ContextVar("agentguard_stage_budget", default=None)
 
 
 def _reject(component, evidence, *, completed=False):
@@ -28,12 +30,20 @@ def _reject(component, evidence, *, completed=False):
 
 def admit(component):
     """Reusable check, including dispatch after potentially expensive preparation."""
+    active_stage = _stage_budget.get()
+    if active_stage is not None and active_stage[0] == component:
+        evidence = active_stage[1].admission()
+        if not evidence.admitted:
+            _reject(component, evidence)
+        return
     budget = _active_budget.get()
     if budget is None or budget.deadline_monotonic is None:
         return
     requirements = {}
     if component == "recovery_planner" and _recovery_policy.get() is not None:
         requirements = _recovery_policy.get().requirements()
+    if _qualification_policy.get() is not None:
+        requirements = _qualification_policy.get().requirements(component)
     evidence = budget.admission(**requirements)
     telemetry.stage_admission(evidence)
     if not evidence.admitted:
@@ -66,13 +76,28 @@ def stage(component, *, operation=None):
         if operation is not None:
             telemetry.operation(operation)
         admit(component)
-        yield
-        if budget is not None and budget.deadline_monotonic is not None:
-            evidence = budget.admission()
-            telemetry.stage_acceptance(evidence)
-            if not evidence.admitted:
-                budget.abandon_result()
-                _reject(component, evidence, completed=True)
+        bounded = budget
+        policy = _qualification_policy.get()
+        if policy is not None and budget is not None and policy.requirements(component):
+            # Admission already checked. Anchor the child at this boundary;
+            # repeated pre-dispatch checks must never restart the stage clock.
+            try:
+                bounded = budget.child_budget(**policy.requirements(component))
+            except BudgetAdmissionError as error:
+                _reject(component, error.evidence)
+            telemetry.stage_budget(bounded, policy.requirements(component))
+        token = _stage_budget.set((component, bounded)) if bounded is not budget else None
+        try:
+            yield
+            if bounded is not None and bounded.deadline_monotonic is not None:
+                evidence = bounded.admission()
+                telemetry.stage_acceptance(evidence)
+                if not evidence.admitted:
+                    bounded.abandon_result()
+                    _reject(component, evidence, completed=True)
+        finally:
+            if token is not None:
+                _stage_budget.reset(token)
 
 
 def request_execution(function):
@@ -82,6 +107,8 @@ def request_execution(function):
         budget = kwargs.get("request_budget")
         budget_token = _active_budget.set(budget)
         policy_token = _recovery_policy.set(kwargs.get("recovery_budget_policy"))
+        qualification_token = _qualification_policy.set(kwargs.get("qualification_budget_policy"))
+        stage_token = _stage_budget.set(None)
         try:
             result = function(*args, **kwargs)
             if budget is not None and budget.deadline_monotonic is not None:
@@ -95,6 +122,8 @@ def request_execution(function):
                     raise
             return result
         finally:
+            _stage_budget.reset(stage_token)
+            _qualification_policy.reset(qualification_token)
             _recovery_policy.reset(policy_token)
             _active_budget.reset(budget_token)
     return run

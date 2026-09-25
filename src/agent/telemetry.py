@@ -166,6 +166,9 @@ class ComponentSpan:
     late_completion: bool = False
     result_accepted: bool | None = None
     result_abandoned: bool = False
+    stage_deadline_monotonic: float | None = None
+    configured_stage_cap_ms: float | None = None
+    required_downstream_reserve_ms: float | None = None
 
 
 @dataclass
@@ -343,6 +346,17 @@ def stage_admission(evidence):
         span.admission_denial_reason = evidence.denial_reason
         if span.component == "recovery_planner" and _request.get() is not None:
             _request.get().recovery_admission = evidence
+
+
+@best_effort
+def stage_budget(budget, requirements):
+    span = _span.get()
+    if span is not None:
+        span.stage_deadline_monotonic = budget.deadline_monotonic
+        span.allocated_allowance_ms = budget.original_budget_ms
+        span.configured_stage_cap_ms = requirements.get("cap_ms")
+        span.required_downstream_reserve_ms = requirements.get("reserve_ms", 0)
+        span.timeout_deadline_source = "qualification_stage_within_request"
 
 
 @best_effort
