@@ -10,6 +10,7 @@ from src.agent.tools import orders
 from src.agent import telemetry
 from src.agent.request_budget import RecoveryBudgetPolicy, RequestBudget, RequestBudgetRejected
 from src.agent.request_execution import admit, request_execution, stage
+from src.agent.model_execution import run_model
 from src.agent.capability_router import CapabilityRouter, SemanticCapabilityRouter
 from src.agent.request_policy import resolve_request_policy
 from src.agent.data_policy import project_tool_result
@@ -137,8 +138,8 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
             model_input = trace.model_input(user_message)
             admit("synthesis")
             telemetry.model_call(agent)
-            result = Runner.run_sync(agent, model_input, context=trace,
-                                     hooks=_SynthesisHooks(), max_turns=1)
+            result = run_model(agent, model_input, context=trace,
+                               hooks=_SynthesisHooks(), max_turns=1)
             telemetry.model_result(result)
     except ExecutionFailure as error:
         if error.usage is not None:

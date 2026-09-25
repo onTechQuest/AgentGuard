@@ -130,7 +130,9 @@ status, failure category, sanitized exception type, SDK-visible requests, return
 token counters, and `usage_known`. Retry eligibility/reason/denial/delay remain
 `None` because no application retry decision is made. `retry_performed=False`;
 `http_retry_count=None` because lower-layer retries are not observed. SDK request
-counts do not supply an HTTP retry count. Existing provider retries remain intact.
+counts do not supply an HTTP retry count. Since 13C.3A, lower-layer model retries
+are disabled through scoped SDK settings; [Retry ownership](RETRY_OWNERSHIP.md)
+documents the transport proof. Configuration evidence remains separate from counts.
 
 Usage is copied before production aggregation. Repeated hook/result observations
 update the same attempt, not additional consumption. Missing usage is unknown,
@@ -197,8 +199,8 @@ concurrency, sanitized telemetry, and enforcement independent of observers.
 
 Run `python -m pytest tests -q`; no live evaluations are needed.
 
-13C.3 still needs a verified transport retry boundary and explicitly approved
-single-owner retry design: eligibility, retry admission, backoff, failed-attempt
-usage, and lower-layer retry disabling/verification. Numeric production deadline
-and reserve policy, cooperative cancellation, and tool reliability contract wiring
-remain unconfigured. No retry ownership changes are implemented in 13C.2.
+13C.3A verifies and disables lower-layer model retries without adding application
+retries. 13C.3B still needs an explicitly approved single-owner retry design:
+eligibility, retry admission, backoff, and failed-attempt usage. Numeric production
+deadline and reserve policy, cooperative cancellation, and tool reliability
+contract wiring remain unconfigured.

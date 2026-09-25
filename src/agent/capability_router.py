@@ -10,6 +10,7 @@ from agents.usage import Usage
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from src.agent.domain_entities import ExtractedEntities, extract_entities
+from src.agent.model_execution import run_model
 from src.agentguard.tool_policy import (
     CAPABILITIES, Capability, CapabilityIntent, ControlSignal, EntityScope, NonemptyString,
 )
@@ -156,7 +157,7 @@ class SemanticCapabilityRouter:
         admit("primary_router")
         try:
             telemetry.model_call(self.agent, default_resolution=self._run is None)
-            result = (self._run or Runner.run_sync)(self.agent, routing_input, max_turns=1)
+            result = run_model(self.agent, routing_input, run=self._run, max_turns=1)
             telemetry.model_result(result)
             output = result.final_output
             if isinstance(output, CapabilityPlanOutput):

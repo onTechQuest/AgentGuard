@@ -117,6 +117,8 @@ class AttemptTelemetry:
     exception_type: str | None = None
     sdk_visible_requests: int | None = None
     http_retry_count: int | None = None
+    transport_attempts_observed: int | None = None
+    lower_layer_retries_configured: bool | None = None
     returned_usage: dict = field(default_factory=dict)
     usage_known: bool = False
     late_completion: bool = False
@@ -139,6 +141,8 @@ class ComponentSpan:
     total_tokens: int | None = None
     usage_available: bool = False
     http_retry_count: int | None = None
+    transport_attempts_observed: int | None = None
+    lower_layer_retries_configured: bool | None = None
     retry_source: str | None = None
     failure_category: FailureCategory | None = None
     sanitized_exception_type: str | None = None
@@ -359,6 +363,16 @@ def model_call(agent, *, default_resolution=True):
             for tool in agent.tools], ensure_ascii=False)) if agent.tools else 0,
         "output_schema": len(json.dumps(AgentOutputSchema(agent.output_type).json_schema())) if agent.output_type else 0,
     }
+
+
+@best_effort
+def retry_configuration(*, lower_layer_retries_configured):
+    """Configuration evidence only; never infer a transport count from it."""
+    span = _span.get()
+    if span is not None:
+        span.lower_layer_retries_configured = lower_layer_retries_configured
+        if span.attempts:
+            span.attempts[-1].lower_layer_retries_configured = lower_layer_retries_configured
 
 
 @best_effort

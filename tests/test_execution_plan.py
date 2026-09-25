@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from agents import Model, RunConfig
+from agents import Model
 from agents.items import ModelResponse
 from agents.usage import Usage
 from openai.types.responses import ResponseFunctionToolCall, ResponseOutputMessage, ResponseOutputText
@@ -60,7 +60,7 @@ def offline_sdk(monkeypatch, model):
     original = support.Runner.run_sync
     monkeypatch.setattr(support, "support_agent", support.support_agent.clone(model=model))
     monkeypatch.setattr(support.Runner, "run_sync", lambda agent, message, **kwargs:
-                        original(agent, message, run_config=RunConfig(tracing_disabled=True), **kwargs))
+                        original(agent, message, run_config={**kwargs.pop("run_config", {}), "tracing_disabled": True}, **kwargs))
 
 
 @pytest.mark.parametrize("capabilities,tool", [

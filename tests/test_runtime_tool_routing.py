@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from agents import Model, RunConfig
+from agents import Model
 from src.agent.execution_plan import ExecutionFailure
 from agents.items import ModelResponse
 from agents.usage import Usage
@@ -118,7 +118,7 @@ def offline_sdk(monkeypatch, model):
     original = support.Runner.run_sync
     monkeypatch.setattr(support, "support_agent", support.support_agent.clone(model=model))
     monkeypatch.setattr(support.Runner, "run_sync", lambda agent, message, **kwargs:
-                        original(agent, message, run_config=RunConfig(tracing_disabled=True), **kwargs))
+                        original(agent, message, run_config={**kwargs.pop("run_config", {}), "tracing_disabled": True}, **kwargs))
 
 
 def test_sdk_refuses_non_exposed_tool_before_business_function_runs(monkeypatch):

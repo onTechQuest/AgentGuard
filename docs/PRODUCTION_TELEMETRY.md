@@ -30,6 +30,12 @@ attempts](REQUEST_BUDGET.md) for reserve policy, completed-versus-accepted evide
 cancellation semantics, and the deferred operation reliability contract. Default
 production remains unlimited, with no application retry loop or enforced deadline.
 
+Milestone 13C.3A adds per-span/per-attempt `lower_layer_retries_configured=False`
+on the configured production SDK path. `transport_attempts_observed` remains
+`None` without a transport observer; configuration does not supply a measured
+count or justify `http_retry_count=0`. See [Retry ownership](RETRY_OWNERSHIP.md)
+for the scoped SDK/client configuration and actual mocked-transport verification.
+
 ## Spans and authoritative evidence
 
 Spans cover primary routing, completeness validation, optional recovery, policy

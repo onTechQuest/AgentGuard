@@ -18,6 +18,7 @@ from src.agent.capability_router import CapabilityRequest, RequestPlan, RoutingR
 from src.agent import telemetry
 from src.agent.request_budget import RequestBudgetRejected
 from src.agent.request_execution import admit, stage
+from src.agent.model_execution import run_model
 from src.agentguard.tool_policy import CAPABILITIES, TOOL_REGISTRY, Capability, ToolCapability
 
 
@@ -115,11 +116,11 @@ class SemanticRecoveryPlanner:
     def recover(self, user_message: str, primary_plan: RequestPlan, evidence: dict) -> RecoveryResult:
         admit("recovery_planner")
         telemetry.model_call(self.agent, default_resolution=self._run is None)
-        result = (self._run or Runner.run_sync)(self.agent, json.dumps({
+        result = run_model(self.agent, json.dumps({
             "user_text": user_message,
             "primary_plan": _plan_snapshot(primary_plan),
             "review_evidence": evidence,
-        }, ensure_ascii=False, separators=(",", ":")), max_turns=1)
+        }, ensure_ascii=False, separators=(",", ":")), run=self._run, max_turns=1)
         telemetry.model_result(result)
         # Validate at the boundary below, so usage is retained even for invalid output.
         return RecoveryResult(result.final_output, result.context_wrapper.usage)
