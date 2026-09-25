@@ -307,7 +307,9 @@ def operation(item):
     if span is not None:
         span.operation_id, span.tool = item.call_id, item.operation.tool
         span.duration_ms = item.latency_ms  # ExecutionTrace owns operation timing.
-        if item.status == "failed":
+        if item.status == "failed" and span.failure_category is None:
+            # Preserve a classified exception (for example TIMEOUT); the operation
+            # summary is only a fallback for failures without an exception.
             fail(category=(FailureCategory.TOOL_NOT_FOUND if item.error == "missing_implementation"
                            else FailureCategory.TOOL_ERROR), span=span)
 
