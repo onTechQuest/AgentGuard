@@ -1,4 +1,4 @@
-"""Monotonic admission primitives; production does not enforce them in 13C.1.
+"""Monotonic admission primitives; explicit finite budgets are enforced in 13C.2.
 
 None means unbounded, never zero. Child deadlines are absolute bounds in the
 same clock domain. Cancellation evidence concerns local execution only; it does
@@ -49,6 +49,41 @@ class BudgetAdmissionError(RuntimeError):
     def __init__(self, evidence: AdmissionEvidence):
         self.evidence = evidence
         super().__init__(evidence.denial_reason.value)
+
+
+class RequestBudgetRejected(BudgetAdmissionError):
+    """Terminal request rejection, distinct from the outcome of completed work."""
+
+    def __init__(self, component: str, evidence: AdmissionEvidence, *, completed=False):
+        super().__init__(evidence)
+        self.component = component
+        self.completed = completed
+        self.phase = "result_acceptance" if completed else "admission"
+
+
+class RequestDeadlineExceeded(RequestBudgetRejected):
+    """Deadline reached, or insufficient remaining budget for required reserves."""
+
+
+@dataclass(frozen=True)
+class RecoveryBudgetPolicy:
+    """Optional admission requirements, not component timeouts or retry policy."""
+
+    recovery_allowance_ms: float | None = None
+    required_execution_reserve_ms: float | None = None
+    synthesis_reserve_ms: float | None = None
+    completion_reserve_ms: float | None = None
+
+    def __post_init__(self):
+        for name in self.__dataclass_fields__:
+            _milliseconds(getattr(self, name), name, optional=True)
+
+    def requirements(self) -> dict:
+        return {
+            "minimum_ms": self.recovery_allowance_ms or 0,
+            "reserve_ms": sum(value or 0 for value in (
+                self.required_execution_reserve_ms, self.synthesis_reserve_ms, self.completion_reserve_ms)),
+        }
 
 
 @dataclass

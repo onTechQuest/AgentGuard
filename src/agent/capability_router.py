@@ -148,10 +148,12 @@ class SemanticCapabilityRouter:
 
     def route(self, user_message: str) -> RoutingResult:
         from src.agent import telemetry
+        from src.agent.request_execution import admit
         entities = extract_entities(user_message)
         routing_input = json.dumps({
             "user_text": user_message, "extracted_entities": {"order_ids": list(entities.order_ids)},
         }, ensure_ascii=False, separators=(",", ":"))
+        admit("primary_router")
         try:
             telemetry.model_call(self.agent, default_resolution=self._run is None)
             result = (self._run or Runner.run_sync)(self.agent, routing_input, max_turns=1)

@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict
 
 from src.agent.capability_router import CapabilityRequest, RequestPlan, RoutingResult
 from src.agent import telemetry
+from src.agent.request_budget import RequestBudgetRejected
+from src.agent.request_execution import admit, stage
 from src.agentguard.tool_policy import CAPABILITIES, TOOL_REGISTRY, Capability, ToolCapability
 
 
@@ -111,6 +113,7 @@ class SemanticRecoveryPlanner:
         self._run = run
 
     def recover(self, user_message: str, primary_plan: RequestPlan, evidence: dict) -> RecoveryResult:
+        admit("recovery_planner")
         telemetry.model_call(self.agent, default_resolution=self._run is None)
         result = (self._run or Runner.run_sync)(self.agent, json.dumps({
             "user_text": user_message,
@@ -171,10 +174,10 @@ def validate_planning(user_message: str, routed: RoutingResult, *,
         result.completeness_review_triggered = True
         result.completeness_reason = "Unambiguous empty bindings with recognized targets and control signals need semantic completeness review"
         result.evidence = _review_evidence(user_message, primary, capabilities, registry)
-        result.recovery_attempted = True
-        result.recovery_count = 1
         try:
-            with telemetry.observe("recovery_planner"):
+            with stage("recovery_planner"):
+                result.recovery_attempted = True
+                result.recovery_count = 1
                 recovered = recovery_factory().recover(user_message, primary, result.evidence)
                 telemetry.usage(recovered.usage)
                 result.recovery_usage = recovered.usage
@@ -199,6 +202,11 @@ def validate_planning(user_message: str, routed: RoutingResult, *,
                     )
                     result.plan_source = "recovered"
                 # An empty recovery confirms no business work. Never recurse or force a read.
+        except RequestBudgetRejected as error:
+            result.recovery_error = type(error).__name__
+            error.planning = result
+            telemetry.planning(result)
+            raise
         except Exception as error:
             result.recovery_error = type(error).__name__
             telemetry.planning(result)

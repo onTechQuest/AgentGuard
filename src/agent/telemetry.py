@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from src.agent.request_budget import (
     AdmissionEvidence, BudgetAdmissionError, AdmissionDenial, CancellationEvidence,
-    ReliabilityState, RequestBudget,
+    ReliabilityState, RequestBudget, RequestBudgetRejected, RequestDeadlineExceeded,
 )
 
 
@@ -60,6 +60,12 @@ def exception_category(error, component):
         chain.append(error)
         error = error.__cause__ or error.__context__
     for candidate in reversed(chain):
+        if isinstance(candidate, RequestDeadlineExceeded):
+            return FailureCategory.DEADLINE_EXHAUSTED
+        if isinstance(candidate, RequestBudgetRejected) and candidate.evidence.denial_reason in {
+            AdmissionDenial.CANCELLED, AdmissionDenial.CANCELLATION_REQUESTED,
+        }:
+            return FailureCategory.CANCELLED
         if isinstance(candidate, BudgetAdmissionError) and candidate.evidence.denial_reason == AdmissionDenial.DEADLINE_EXHAUSTED:
             return FailureCategory.DEADLINE_EXHAUSTED
         names = {base.__name__ for base in type(candidate).__mro__}
@@ -113,6 +119,9 @@ class AttemptTelemetry:
     http_retry_count: int | None = None
     returned_usage: dict = field(default_factory=dict)
     usage_known: bool = False
+    late_completion: bool = False
+    result_accepted: bool | None = None
+    result_abandoned: bool = False
 
 
 @dataclass
@@ -140,9 +149,14 @@ class ComponentSpan:
     context_characters: dict = field(default_factory=dict)
     remaining_budget_before_ms: float | None = None
     remaining_budget_after_ms: float | None = None
-    allocated_allowance_ms: float | None = None  # No stage allocation/enforcement yet.
+    allocated_allowance_ms: float | None = None
     timeout_deadline_source: str | None = None
     attempts: list[AttemptTelemetry] = field(default_factory=list)
+    stage_admitted: bool | None = None
+    admission_denial_reason: AdmissionDenial | None = None
+    late_completion: bool = False
+    result_accepted: bool | None = None
+    result_abandoned: bool = False
 
 
 @dataclass
@@ -164,6 +178,7 @@ class ProductionExecutionTelemetry:
     observed_usage: dict = field(default_factory=dict)
     observation_incomplete: bool = False
     deadline_budget_ms: float | None = None
+    deadline_monotonic: float | None = None
     deadline_exhausted: bool = False
     cancellation_requested: bool = False
     cancellation_observed: bool = False
@@ -213,7 +228,7 @@ def _begin(component):
     if _budget.get() is not None:
         span.remaining_budget_before_ms = _budget.get().remaining_ms()
     if component == "recovery_planner":
-        # Evidence structure only: current recovery does not consult admission.
+        # Unlimited recovery is unevaluated; finite admission updates this evidence.
         record.recovery_admission = AdmissionEvidence(span.remaining_budget_before_ms)
     return span
 
@@ -223,6 +238,8 @@ def fail(error=None, category=None, span=None):
     span = span or _span.get()
     if span is None:
         return
+    if isinstance(error, RequestBudgetRejected) and error.completed and span.status == "failed":
+        return  # Preserve an actual work failure; request rejection is recorded separately.
     if error is not None and span.logical_model_calls and not span.usage_available:
         candidate, seen = error, set()
         while candidate is not None and id(candidate) not in seen:
@@ -233,6 +250,8 @@ def fail(error=None, category=None, span=None):
                 break
             candidate = candidate.__cause__ or candidate.__context__
     span.status = "failed"
+    if isinstance(error, RequestBudgetRejected) and error.component == span.component:
+        span.status = "completed" if error.completed else "not_started"
     span.failure_category = category or exception_category(error, span.component)
     if error is not None:
         name = type(error).__name__
@@ -262,8 +281,12 @@ def _end_attempt(span):
     attempt = span.attempts[-1]
     attempt.duration_ms = (time.perf_counter() - _started.get()) * 1000 - attempt.started_offset_ms
     attempt.status = "completed" if span.status == "running" else span.status
-    attempt.failure_category = span.failure_category
-    attempt.exception_type = span.sanitized_exception_type
+    # Result rejection is a request failure, not failure of completed model work.
+    attempt.failure_category = span.failure_category if attempt.status == "failed" else None
+    attempt.exception_type = span.sanitized_exception_type if attempt.status == "failed" else None
+    attempt.late_completion = span.late_completion
+    attempt.result_accepted = span.result_accepted
+    attempt.result_abandoned = span.result_abandoned
     if _budget.get() is not None:
         attempt.remaining_budget_after_ms = _budget.get().remaining_ms()
 
@@ -280,6 +303,29 @@ def observe(component):
     finally:
         _end(span)
         _span.reset(token)
+
+
+@best_effort
+def stage_admission(evidence):
+    span = _span.get()
+    if span is not None:
+        span.remaining_budget_before_ms = evidence.remaining_budget_ms
+        span.allocated_allowance_ms = evidence.allowance_ms
+        span.timeout_deadline_source = "request_budget"
+        span.stage_admitted = evidence.admitted
+        span.admission_denial_reason = evidence.denial_reason
+        if span.component == "recovery_planner" and _request.get() is not None:
+            _request.get().recovery_admission = evidence
+
+
+@best_effort
+def stage_acceptance(evidence):
+    span = _span.get()
+    if span is not None:
+        span.remaining_budget_after_ms = evidence.remaining_budget_ms
+        span.result_accepted = evidence.admitted
+        span.result_abandoned = not evidence.admitted
+        span.late_completion = evidence.denial_reason == AdmissionDenial.DEADLINE_EXHAUSTED
 
 
 @best_effort
@@ -406,6 +452,7 @@ def _finish(record, started, error):
     budget = _budget.get()
     if budget is not None:
         record.deadline_budget_ms = budget.original_budget_ms
+        record.deadline_monotonic = budget.deadline_monotonic
         record.deadline_exhausted = budget.exhausted()
         record.cancellation_requested = budget.cancellation_requested
         record.cancellation_observed = budget.cancellation_observed
@@ -429,6 +476,11 @@ def _finish(record, started, error):
         record.terminal_failure_component = cause.component if cause else "request"
         record.terminal_failure_category = cause.failure_category if cause else exception_category(error, "request")
         record.terminal_exception_type = cause.sanitized_exception_type if cause else type(error).__name__
+        if isinstance(error, RequestBudgetRejected):
+            # An earlier work failure must not mask the terminal admission outcome.
+            record.terminal_failure_component = error.component
+            record.terminal_failure_category = exception_category(error, error.component)
+            record.terminal_exception_type = type(error).__name__
 
 
 @best_effort

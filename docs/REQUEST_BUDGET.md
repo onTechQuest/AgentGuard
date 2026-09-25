@@ -1,9 +1,10 @@
-# Milestone 13C.1: request budget and attempt foundation
+# Milestone 13C.2: request admission and result acceptance
 
 The runtime still routes, optionally recovers planning, resolves policy, executes
 required tools once, projects their results, and synthesizes with `tools=[]`.
-There is no new retry loop, admission gate, timeout setting, asynchronous
-orchestrator, thread wrapper, or provider configuration change.
+Explicit finite budgets now gate admission and result acceptance. Unlimited/default
+requests retain their existing behavior. No retry loop, numeric production timeout,
+asynchronous orchestrator, thread wrapper, or provider configuration change is added.
 
 ## RequestBudget API
 
@@ -29,16 +30,66 @@ UTC is diagnostic metadata only; it never participates in admission calculations
   cancellation/abandonment signals. Independent requests own independent signals.
 
 Admission is a point-in-time calculation, not a lock, reservation ledger, or
-dispatch guarantee. A future dispatcher must check immediately before work starts.
+dispatch guarantee. Runtime boundaries check before work starts and recheck before
+model/tool dispatch after preparation.
 The downstream reserve bounds time; it does not allocate concurrent resource quotas.
 
 `run_support_agent_detailed(..., request_budget=budget)` accepts an optional
-budget **for observation only in this phase**. Default execution creates an
-unlimited budget. Even an explicitly exhausted or cancellation-requested budget
-does not currently suppress work or reject its result. A caller-supplied budget
+budget. **Only explicitly finite budgets enable enforcement.** Default execution
+creates an unlimited budget; unlimited cancellation signals retain their earlier
+observation-only behavior. A caller-supplied budget
 may start before this function; request latency still measures this invocation,
 while budget remaining reflects the caller's original absolute deadline.
 Use opaque request IDs and labels, never customer identifiers or secrets.
+
+## Authoritative execution boundaries
+
+`src/agent/request_execution.py` scopes enforcement separately from best-effort
+telemetry. Its `stage()` context checks `RequestBudget.admission()` before primary
+routing, recovery, policy resolution, execution-plan construction, every required
+operation, and synthesis. `admit()` also checks before model/tool dispatch after
+preparation. No duplicated monotonic comparisons live in these callers.
+An observation failure cannot disable admission. A broken authoritative clock
+fails closed rather than authorizing work with an unknown deadline.
+
+`RequestDeadlineExceeded` carries component, admission evidence, and whether the
+stage body completed before rejection. It propagates as a typed terminal exception,
+without being replaced by router, planning, or generic tool errors. Existing
+unlimited exception paths remain unchanged. `EvaluationRecord`'s default execution
+path remains unlimited; explicitly budgeted callers can inspect the exception's
+production telemetry and, when available, execution trace/planning evidence.
+
+After successful work, the boundary checks acceptance. At the deadline itself
+(`remaining_ms()==0`) the result is too late. Completed model attempts retain their
+usage and completed status; completed tools retain their invocation, projected
+output, and completed status. Their results are marked unaccepted/abandoned for
+continued request processing. An unstarted operation stays pending. Required tool
+execution includes privacy projection, so preserved evidence never exposes raw
+tool payloads. No next operation or synthesis runs after rejection.
+
+Synthesis still requires satisfied execution obligations and receives `tools=[]`.
+A late synthesis answer is never returned as success. A final finite-budget
+acceptance boundary also covers local processing after synthesis. No fallback
+answer is generated. These are synchronous admission/acceptance guarantees, not
+preemption: in-flight Python work and provider requests can finish and incur cost.
+
+## Recovery reserves
+
+Callers may pass `recovery_budget_policy=RecoveryBudgetPolicy(...)` with explicit
+`recovery_allowance_ms`, `required_execution_reserve_ms`, `synthesis_reserve_ms`,
+and `completion_reserve_ms`. All defaults are unspecified (`None`); they introduce
+no numeric production policy. For finite budgets, admission requires remaining
+time to cover the recovery allowance plus all supplied downstream reserves.
+Exact positive requirements are admitted; zero available work allowance is denied.
+
+Insufficient reserve raises `RequestDeadlineExceeded` with denial reason
+`INSUFFICIENT_ALLOWANCE`, even when the absolute deadline has not elapsed.
+`deadline_exhausted` truthfully remains false in that case. Recovery is never
+silently skipped in favor of the suspicious original plan. Admission denial
+before planner creation records zero recovery attempts. Recovery remains its own
+logical call, not a retry. Reserves govern admission, not a new component timeout:
+synchronous recovery is not preempted if it consumes its allowance, and its result
+must still satisfy the authoritative request deadline.
 
 ## Independent deadline and cancellation evidence
 
@@ -47,8 +98,8 @@ Use opaque request IDs and labels, never customer identifiers or secrets.
 | State | Meaning |
 | --- | --- |
 | `TIMEOUT` | A component reported a timeout; this alone proves neither request deadline exhaustion nor cancellation. |
-| `DEADLINE_EXHAUSTED` | The monotonic request deadline has been reached; future enforced admission must reject new work. |
-| `CANCELLED` | Local task cancellation was actually observed. It says nothing about completion of a remote operation. |
+| `DEADLINE_EXHAUSTED` | Request rejection because the deadline was reached or admission cannot satisfy required reserves; the separate `deadline_exhausted` flag describes actual elapsed time. |
+| `CANCELLED` | Local cancellation occurred or finite-budget admission honored an explicit cancellation signal. Only direct evidence sets `cancellation_observed`. |
 | `RESULT_ABANDONED` | A result was explicitly marked abandoned; work may still be running. |
 | `REMOTE_OUTCOME_UNKNOWN` | The outcome of remote work was explicitly marked unknown; a write may have succeeded. |
 
@@ -61,6 +112,10 @@ Neither a timed-out wait nor `abandon_result()` supplies cancellation evidence.
 whether a remote request was dispatched or whether a remote write failed. A false
 flag means no such event was recorded, not proof of a known remote outcome.
 These methods record observations; none cancels, waits, or abandons work itself.
+Deadline rejection never requests cancellation or claims it was observed. No
+cancellation API is invoked by deadline enforcement. An explicitly recorded
+cancellation signal on a finite budget denies new work with `RequestBudgetRejected`;
+it still does not prove remote cancellation or the outcome of a remote write.
 
 ## Attempt and stage telemetry
 
@@ -85,16 +140,22 @@ SDK evidence, not a complete provider bill; instrumentation failures can make th
 observation incomplete. Aggregate production accounting still includes routing,
 optional recovery, and synthesis; evaluation-only usage remains separate.
 
-Stages retain remaining budget before/after. `allocated_allowance_ms` and
-`timeout_deadline_source` remain `None`: no stage allowance is allocated and no
-authoritative timeout source has been observed. Existing span and attempt durations
+Finite stages retain remaining budget before/after, latest admission decision and
+denial reason, available `allocated_allowance_ms`, and `timeout_deadline_source`
+of `request_budget`. The allowance is an admission window, not an SDK timeout.
+They also record `late_completion`, `result_accepted`, and `result_abandoned`.
+Denied stages are `not_started`; late successful work remains `completed` while
+the request fails. Attempts retain completed status and acceptance evidence
+separately. Unlimited stages leave the admission fields unset. Request metadata
+includes original budget and monotonic deadline (meaningful only in its clock
+domain), exhausted/abandoned flags, and truthful cancellation evidence.
+Existing span and attempt durations
 use monotonic `perf_counter`; budget calculations use the budget's injected clock.
 Only relative budget values cross clock domains, never absolute timestamps.
 
-When recovery starts, `recovery_admission` captures `AdmissionEvidence` with the
-observed remaining budget. Reserve, minimum, allowance, admission, and denial
-remain `None`, distinguishing an unevaluated decision from either admitted or
-denied. This adds the evidence shape without changing recovery policy.
+For finite recovery, `recovery_admission` captures remaining budget, required
+downstream reserve, minimum work allowance, admitted/denied, and denial reason.
+Unlimited recovery retains the unevaluated evidence shape with `admitted=None`.
 
 Request-local ContextVars reset on success, exceptions, and nested invocations.
 Observation failures remain non-authoritative. JSON adds only structural counters,
@@ -130,11 +191,14 @@ and truthful state distinctions. `tests/faults/test_request_budget_telemetry.py`
 uses the 13B harness around real policy/execution/projection to check unchanged
 calls, order, inputs, outputs, exceptions, recovery, usage, and sanitized telemetry.
 The existing fault matrix remains the regression contract.
+`tests/faults/test_deadline_execution.py` covers finite admission and late-result
+boundaries, explicit reserves, truthful completed-tool evidence, synthesis rejection,
+concurrency, sanitized telemetry, and enforcement independent of observers.
 
 Run `python -m pytest tests -q`; no live evaluations are needed.
 
-13C.2 still needs an explicitly approved deadline/enforcement policy, dispatcher
-admission including recovery reserve decisions, cooperative cancellation/result
-acceptance semantics, and a verified transport retry boundary. Single-owner retry
-implementation, lower-layer retry disabling, backoff, and tool reliability contract
-wiring are future work, not enabled by these primitives.
+13C.3 still needs a verified transport retry boundary and explicitly approved
+single-owner retry design: eligibility, retry admission, backoff, failed-attempt
+usage, and lower-layer retry disabling/verification. Numeric production deadline
+and reserve policy, cooperative cancellation, and tool reliability contract wiring
+remain unconfigured. No retry ownership changes are implemented in 13C.2.

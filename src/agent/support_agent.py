@@ -8,7 +8,8 @@ from openai.types.responses import ResponseFunctionToolCall
 
 from src.agent.tools import orders
 from src.agent import telemetry
-from src.agent.request_budget import RequestBudget
+from src.agent.request_budget import RecoveryBudgetPolicy, RequestBudget, RequestBudgetRejected
+from src.agent.request_execution import admit, request_execution, stage
 from src.agent.capability_router import CapabilityRouter, SemanticCapabilityRouter
 from src.agent.request_policy import resolve_request_policy
 from src.agent.data_policy import project_tool_result
@@ -81,10 +82,12 @@ class _PlannedExecutionTrace(ExecutionTrace):
 
 
 @telemetry.observe_request
+@request_execution
 def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | None = None,
                                recovery_planner: RecoveryPlanner | None = None,
                                request_label: str | None = None,
-                               request_budget: RequestBudget | None = None) -> RunResult:
+                               request_budget: RequestBudget | None = None,
+                               recovery_budget_policy: RecoveryBudgetPolicy | None = None) -> RunResult:
     """Route, validate completeness, authorize, execute, and synthesize once.
 
     Runtime operations live in context_wrapper.context, and their projected
@@ -93,26 +96,30 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
     so EvaluationRecord keeps end-to-end production usage and latency.
     Planning failures propagate before execution, without an unrestricted fallback.
     request_label is optional opaque telemetry metadata, never a prompt or policy input.
-    request_budget supplies observation-only deadline evidence in 13C.1. Neither
-    finite deadlines nor cancellation signals enforce admission in this phase.
+    An explicitly finite request_budget enforces admission and late-result rejection.
+    Unlimited/default requests retain the existing execution behavior.
     """
-    with telemetry.observe("primary_router"):
+    with stage("primary_router"):
         routed = (router if router is not None else SemanticCapabilityRouter(model=support_agent.model)).route(user_message)
         telemetry.usage(routed.usage)
     with telemetry.observe("planning_completeness"):
         planning = validate_planning(user_message, routed, recovery_factory=lambda:
                                      recovery_planner if recovery_planner is not None else
                                      SemanticRecoveryPlanner(model=support_agent.model))
-    with telemetry.observe("policy_resolution"):
+    with stage("policy_resolution"):
         policy = resolve_request_policy(planning.final_plan)
         telemetry.policy(policy)
-    with telemetry.observe("execution_plan"):
+    with stage("execution_plan"):
         trace = _PlannedExecutionTrace(build_execution_plan(policy), planning=planning)
     try:
         with telemetry.observe("required_execution"):
             execute_required(trace, lambda name: getattr(orders, name, None))
     except ExecutionFailure as error:
         error.usage = planning.usage
+        raise
+    except RequestBudgetRejected as error:
+        error.trace = trace
+        error.planning = planning
         raise
     finally:
         telemetry.operations(trace)
@@ -126,8 +133,9 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
         instructions=instructions,
     )
     try:
-        with telemetry.observe("synthesis"):
+        with stage("synthesis"):
             model_input = trace.model_input(user_message)
+            admit("synthesis")
             telemetry.model_call(agent)
             result = Runner.run_sync(agent, model_input, context=trace,
                                      hooks=_SynthesisHooks(), max_turns=1)
@@ -137,6 +145,10 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
             error.usage.add(planning.usage)
         else:
             error.usage = planning.usage
+        raise
+    except RequestBudgetRejected as error:
+        error.trace = trace
+        error.planning = planning
         raise
     result.context_wrapper.usage.add(planning.usage)
     return result

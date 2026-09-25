@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.agent import support_agent as support, telemetry
-from src.agent.request_budget import CancellationEvidence, RequestBudget
+from src.agent.request_budget import CancellationEvidence, RequestBudget, RequestDeadlineExceeded
 
 from .harness import Fault, Harness, Injection, PRIVATE_MARKERS, PROMPT, Stage
 
@@ -37,9 +37,9 @@ def comparable_history(harness):
 
 
 @pytest.mark.parametrize("outcome", [None, "clarification", "refusal", "unsupported_action", "not_found"])
-def test_unlimited_and_expired_observation_preserve_execution(faults, outcome):
+def test_unlimited_observation_preserves_execution(faults, outcome):
     baseline = Harness(business_outcome=outcome).run()
-    for budget in (RequestBudget(clock=Clock()), RequestBudget(0, clock=Clock())):
+    for budget in (RequestBudget(), RequestBudget(clock=Clock())):
         observed = run_with_budget(Harness(business_outcome=outcome), budget)
         assert observed.caught_error is None
         assert observed.calls == baseline.calls
@@ -73,10 +73,9 @@ def test_unlimited_and_expired_observation_preserve_execution(faults, outcome):
 
 
 def test_recovery_admission_is_unevaluated_and_is_a_separate_call(faults):
-    # The harness requests recovery before a synthesis fault. Exhaustion must
-    # neither suppress that recovery nor turn it into a routing retry.
+    # Unlimited execution retains recovery as a distinct call, even before a later fault.
     harness = Harness(Injection(Stage.SYNTHESIS, Fault.NETWORK, after_recovery=True))
-    observed = run_with_budget(harness, RequestBudget(0, clock=Clock()))
+    observed = run_with_budget(harness, RequestBudget(clock=Clock()))
     assert observed.calls[Stage.ROUTER] == observed.calls[Stage.RECOVERY] == observed.calls[Stage.SYNTHESIS] == 1
     data = observed.telemetry
     recorded = attempts(data)
@@ -85,7 +84,7 @@ def test_recovery_admission_is_unevaluated_and_is_a_separate_call(faults):
     assert [a["attempt_number"] for a in recorded] == [1, 1, 1]
     assert not any(a["retry_performed"] for a in recorded)
     assert data["recovery_admission"] == {
-        "remaining_budget_ms": 0, "required_downstream_reserve_ms": None,
+        "remaining_budget_ms": None, "required_downstream_reserve_ms": None,
         "minimum_work_ms": None, "allowance_ms": None, "admitted": None, "denial_reason": None,
     }
     assert data["unknown_usage_attempt_count"] == 1
@@ -101,7 +100,7 @@ def test_successful_recovery_is_unchanged_by_budget_observations(faults):
             return True
 
     baseline = RecoveryHarness().run()
-    observed = run_with_budget(RecoveryHarness(), RequestBudget(0, clock=Clock()))
+    observed = run_with_budget(RecoveryHarness(), RequestBudget(clock=Clock()))
     assert observed.caught_error is None
     assert observed.calls == baseline.calls
     assert observed.calls[Stage.RECOVERY] == 1
@@ -130,7 +129,7 @@ def test_failed_attempt_usage_is_only_returned_evidence(faults, known):
     assert not data["deadline_exhausted"] and not data["cancellation_observed"]
 
 
-def test_budget_exhausted_between_stages_is_observed_not_enforced(faults):
+def test_budget_exhausted_by_router_stops_downstream_work(faults):
     clock = Clock()
     budget = RequestBudget(1000, clock=clock)
 
@@ -141,16 +140,16 @@ def test_budget_exhausted_between_stages_is_observed_not_enforced(faults):
             return response
 
     harness = run_with_budget(AdvancingHarness(), budget)
-    assert harness.caught_error is None
-    assert harness.tool_calls == [("get_order_status", {"order_id": "ORD-1001"})]
+    assert isinstance(harness.caught_error, RequestDeadlineExceeded)
+    assert harness.response is None and not harness.tool_calls
     data = harness.telemetry
-    assert data["terminal_status"] == "completed" and data["deadline_exhausted"]
-    router, synthesis = attempts(data)
+    assert data["terminal_status"] == "failed" and data["deadline_exhausted"]
+    router, = attempts(data)
+    assert router["status"] == "completed"
     assert router["remaining_budget_before_ms"] == 1000
-    assert router["remaining_budget_after_ms"] == synthesis["remaining_budget_before_ms"] == 0
-    for span in data["component_spans"]:
-        assert span["allocated_allowance_ms"] is span["timeout_deadline_source"] is None
-        assert span["remaining_budget_after_ms"] == 0
+    assert router["remaining_budget_after_ms"] == 0
+    assert router["late_completion"] and router["result_abandoned"]
+    assert router["result_accepted"] is False
 
 
 def test_sanitized_serialization_and_truthful_states(faults):
@@ -192,8 +191,7 @@ def test_actual_local_cancellation_is_recorded_and_same_exception_propagates():
 
 def test_concurrent_runtime_budgets_are_isolated(faults):
     barrier = Barrier(2)
-    budgets = [RequestBudget(0, clock=Clock()), RequestBudget(clock=Clock())]
-    budgets[0].request_cancellation()
+    budgets = [RequestBudget(1000, clock=Clock()), RequestBudget(clock=Clock())]
 
     def run(budget):
         return run_with_budget(Harness(barrier=barrier), budget).telemetry
@@ -201,9 +199,9 @@ def test_concurrent_runtime_budgets_are_isolated(faults):
     with ThreadPoolExecutor(2) as executor:
         expired, unlimited = executor.map(run, budgets)
     assert expired["request_id"] != unlimited["request_id"]
-    assert expired["deadline_exhausted"] and expired["cancellation_requested"]
+    assert not expired["deadline_exhausted"] and not expired["cancellation_requested"]
     assert not unlimited["deadline_exhausted"] and not unlimited["cancellation_requested"]
-    assert all(a["remaining_budget_before_ms"] == 0 for a in attempts(expired))
+    assert all(a["remaining_budget_before_ms"] == 1000 for a in attempts(expired))
     assert all(a["remaining_budget_before_ms"] is None for a in attempts(unlimited))
     assert not {a["logical_call_id"] for a in attempts(expired)} & {a["logical_call_id"] for a in attempts(unlimited)}
     assert telemetry._budget.get() is None
@@ -226,14 +224,13 @@ def test_nested_requests_restore_outer_budget(faults):
     assert telemetry._budget.get() is None
 
 
-def test_failed_budget_observation_does_not_change_production(faults):
+def test_broken_authoritative_budget_fails_closed(faults):
     clock = Clock()
     budget = RequestBudget(1000, clock=clock)
     clock.now = None  # Simulate a broken diagnostic clock after budget construction.
     observed = run_with_budget(Harness(), budget)
-    assert observed.caught_error is None
-    assert observed.response.final_output == "Authoritative status: processing."
-    assert observed.tool_calls == [("get_order_status", {"order_id": "ORD-1001"})]
-    assert observed.calls[Stage.ROUTER] == observed.calls[Stage.SYNTHESIS] == 1
+    assert isinstance(observed.caught_error, TypeError)
+    assert observed.response is None and not observed.tool_calls
+    assert not observed.calls
     assert observed.telemetry["observation_incomplete"]
     assert telemetry._budget.get() is None
