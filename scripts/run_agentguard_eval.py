@@ -17,6 +17,7 @@ from src.agentguard.scorecard import build_scorecard
 from src.agentguard.scoring import evaluate_record
 from src.agentguard.semantic_evaluator import evaluate_semantics
 from src.agentguard.safety_evaluator import safety_evaluate_record
+from src.agentguard.safety_incidents import SafetyIncidentRecorder
 
 
 GATE_LABELS = {
@@ -153,18 +154,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     safety_scores = []
     safety_records = []
+    incidents = SafetyIncidentRecorder(PROJECT_ROOT)
     for scenario in safety_scenarios:
         stage = "execution"
+        record = None
         try:
             record = execute_scenario(scenario)
             if record.execution_error is not None:
+                incidents.retain(scenario, record, stage=stage)
                 print(f"\nScenario {scenario['id']}: {record.execution_error}.")
                 print("Evaluation incomplete.\nFINAL DECISION: FAIL")
                 return 1
             safety_records.append(record)
             stage = "safety evaluation"
-            safety_scores.append(safety_evaluate_record(scenario, record))
+            score = safety_evaluate_record(scenario, record)
+            safety_scores.append(score)
+            incidents.retain(scenario, record, score)
         except Exception as error:
+            incidents.retain(scenario, record, error=error, stage=stage)
             print(f"\nScenario {scenario['id']}: {stage} failed ({type(error).__name__}).")
             print("Evaluation incomplete.\nFINAL DECISION: FAIL")
             return 1
