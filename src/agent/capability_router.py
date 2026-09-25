@@ -147,12 +147,15 @@ class SemanticCapabilityRouter:
         self._run = run
 
     def route(self, user_message: str) -> RoutingResult:
+        from src.agent import telemetry
         entities = extract_entities(user_message)
         routing_input = json.dumps({
             "user_text": user_message, "extracted_entities": {"order_ids": list(entities.order_ids)},
         }, ensure_ascii=False, separators=(",", ":"))
         try:
+            telemetry.model_call(self.agent, default_resolution=self._run is None)
             result = (self._run or Runner.run_sync)(self.agent, routing_input, max_turns=1)
+            telemetry.model_result(result)
             output = result.final_output
             if isinstance(output, CapabilityPlanOutput):
                 output = output.expand()

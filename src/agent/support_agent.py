@@ -7,6 +7,7 @@ from agents import Agent, Runner, RunResult, RunHooks, function_tool
 from openai.types.responses import ResponseFunctionToolCall
 
 from src.agent.tools import orders
+from src.agent import telemetry
 from src.agent.capability_router import CapabilityRouter, SemanticCapabilityRouter
 from src.agent.request_policy import resolve_request_policy
 from src.agent.data_policy import project_tool_result
@@ -60,6 +61,7 @@ BUSINESS_TOOLS = {tool.name: tool for tool in (get_order_status, check_return_el
 class _SynthesisHooks(RunHooks):
     async def on_llm_end(self, context, agent, response):
         """Reject model-initiated execution after the deterministic execution phase."""
+        telemetry.usage(context.usage)
         attempts = [item for item in response.output if isinstance(item, ResponseFunctionToolCall)]
         if attempts:
             trace = context.context
@@ -77,8 +79,10 @@ class _PlannedExecutionTrace(ExecutionTrace):
     planning: PlanningResult | None = None
 
 
+@telemetry.observe_request
 def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | None = None,
-                               recovery_planner: RecoveryPlanner | None = None) -> RunResult:
+                               recovery_planner: RecoveryPlanner | None = None,
+                               request_label: str | None = None) -> RunResult:
     """Route, validate completeness, authorize, execute, and synthesize once.
 
     Runtime operations live in context_wrapper.context, and their projected
@@ -86,18 +90,28 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
     support trajectory. Usage includes primary routing and any bounded recovery,
     so EvaluationRecord keeps end-to-end production usage and latency.
     Planning failures propagate before execution, without an unrestricted fallback.
+    request_label is optional opaque telemetry metadata, never a prompt or policy input.
     """
-    routed = (router if router is not None else SemanticCapabilityRouter(model=support_agent.model)).route(user_message)
-    planning = validate_planning(user_message, routed, recovery_factory=lambda:
-                                 recovery_planner if recovery_planner is not None else
-                                 SemanticRecoveryPlanner(model=support_agent.model))
-    policy = resolve_request_policy(planning.final_plan)
-    trace = _PlannedExecutionTrace(build_execution_plan(policy), planning=planning)
+    with telemetry.observe("primary_router"):
+        routed = (router if router is not None else SemanticCapabilityRouter(model=support_agent.model)).route(user_message)
+        telemetry.usage(routed.usage)
+    with telemetry.observe("planning_completeness"):
+        planning = validate_planning(user_message, routed, recovery_factory=lambda:
+                                     recovery_planner if recovery_planner is not None else
+                                     SemanticRecoveryPlanner(model=support_agent.model))
+    with telemetry.observe("policy_resolution"):
+        policy = resolve_request_policy(planning.final_plan)
+        telemetry.policy(policy)
+    with telemetry.observe("execution_plan"):
+        trace = _PlannedExecutionTrace(build_execution_plan(policy), planning=planning)
     try:
-        execute_required(trace, lambda name: getattr(orders, name, None))
+        with telemetry.observe("required_execution"):
+            execute_required(trace, lambda name: getattr(orders, name, None))
     except ExecutionFailure as error:
         error.usage = planning.usage
         raise
+    finally:
+        telemetry.operations(trace)
     instructions = support_agent.instructions
     if planning.final_plan.denied_disclosures:
         instructions += ". Refuse the disallowed disclosure portion."
@@ -108,8 +122,12 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
         instructions=instructions,
     )
     try:
-        result = Runner.run_sync(agent, trace.model_input(user_message), context=trace,
-                                 hooks=_SynthesisHooks(), max_turns=1)
+        with telemetry.observe("synthesis"):
+            model_input = trace.model_input(user_message)
+            telemetry.model_call(agent)
+            result = Runner.run_sync(agent, model_input, context=trace,
+                                     hooks=_SynthesisHooks(), max_turns=1)
+            telemetry.model_result(result)
     except ExecutionFailure as error:
         if error.usage is not None:
             error.usage.add(planning.usage)

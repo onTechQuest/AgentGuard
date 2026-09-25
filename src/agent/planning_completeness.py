@@ -15,6 +15,7 @@ from agents.usage import Usage
 from pydantic import BaseModel, ConfigDict
 
 from src.agent.capability_router import CapabilityRequest, RequestPlan, RoutingResult
+from src.agent import telemetry
 from src.agentguard.tool_policy import CAPABILITIES, TOOL_REGISTRY, Capability, ToolCapability
 
 
@@ -110,11 +111,13 @@ class SemanticRecoveryPlanner:
         self._run = run
 
     def recover(self, user_message: str, primary_plan: RequestPlan, evidence: dict) -> RecoveryResult:
+        telemetry.model_call(self.agent, default_resolution=self._run is None)
         result = (self._run or Runner.run_sync)(self.agent, json.dumps({
             "user_text": user_message,
             "primary_plan": _plan_snapshot(primary_plan),
             "review_evidence": evidence,
         }, ensure_ascii=False, separators=(",", ":")), max_turns=1)
+        telemetry.model_result(result)
         # Validate at the boundary below, so usage is retained even for invalid output.
         return RecoveryResult(result.final_output, result.context_wrapper.usage)
 
@@ -171,30 +174,34 @@ def validate_planning(user_message: str, routed: RoutingResult, *,
         result.recovery_attempted = True
         result.recovery_count = 1
         try:
-            recovered = recovery_factory().recover(user_message, primary, result.evidence)
-            result.recovery_usage = recovered.usage
-            usage.add(recovered.usage)
-            payload = recovered.output.model_dump() if isinstance(recovered.output, RecoveryPlan) else recovered.output
-            recovery = RecoveryPlan.model_validate(payload)
-            for request in recovery.capability_requests:
-                capability = capabilities.get(request.capability)
-                if capability is None or not capability.permits_tools:
-                    raise ValueError("Recovery capability is not a supported business read")
-                if request.order_id is not None and request.order_id not in primary.extracted_entities.order_ids:
-                    raise ValueError("Recovery target was not extracted")
-            result.recovery_plan = recovery
-            if recovery.capability_requests:
-                requests = tuple(dict.fromkeys(recovery.capability_requests))
-                ambiguity = ("business_intent" if any(request.needs_clarification for request in requests) else
-                             "missing_order_id" if any(request.order_id is None for request in requests) else "none")
-                result.final_plan = replace(
-                    primary, capability_requests=requests,
-                    business_capabilities=tuple(dict.fromkeys(request.capability for request in requests)),
-                    ambiguity=ambiguity,
-                )
-                result.plan_source = "recovered"
-            # An empty recovery confirms no business work. Never recurse or force a read.
+            with telemetry.observe("recovery_planner"):
+                recovered = recovery_factory().recover(user_message, primary, result.evidence)
+                telemetry.usage(recovered.usage)
+                result.recovery_usage = recovered.usage
+                usage.add(recovered.usage)
+                payload = recovered.output.model_dump() if isinstance(recovered.output, RecoveryPlan) else recovered.output
+                recovery = RecoveryPlan.model_validate(payload)
+                for request in recovery.capability_requests:
+                    capability = capabilities.get(request.capability)
+                    if capability is None or not capability.permits_tools:
+                        raise ValueError("Recovery capability is not a supported business read")
+                    if request.order_id is not None and request.order_id not in primary.extracted_entities.order_ids:
+                        raise ValueError("Recovery target was not extracted")
+                result.recovery_plan = recovery
+                if recovery.capability_requests:
+                    requests = tuple(dict.fromkeys(recovery.capability_requests))
+                    ambiguity = ("business_intent" if any(request.needs_clarification for request in requests) else
+                                 "missing_order_id" if any(request.order_id is None for request in requests) else "none")
+                    result.final_plan = replace(
+                        primary, capability_requests=requests,
+                        business_capabilities=tuple(dict.fromkeys(request.capability for request in requests)),
+                        ambiguity=ambiguity,
+                    )
+                    result.plan_source = "recovered"
+                # An empty recovery confirms no business work. Never recurse or force a read.
         except Exception as error:
             result.recovery_error = type(error).__name__
+            telemetry.planning(result)
             raise PlanningCompletenessError(result) from None
+    telemetry.planning(result)
     return result

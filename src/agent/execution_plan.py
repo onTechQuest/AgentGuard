@@ -13,6 +13,7 @@ import time
 from typing import Callable
 from uuid import uuid4
 
+from src.agent import telemetry
 from src.agent.data_policy import project_tool_result
 from src.agent.request_policy import RequestToolPolicy, ToolGrant
 from src.agentguard.tool_policy import action_policy_snapshot
@@ -130,22 +131,27 @@ def execute_operation(trace: ExecutionTrace, operation: Operation,
         raise ExecutionFailure(trace, "Prohibited operation attempted")
     if item.status != "pending":
         return  # Completed results are reused; failed attempts are never retried.
-    item.status = "running"
-    started = time.perf_counter()
-    try:
-        implementation = resolve_implementation(operation.tool)
-        if not callable(implementation):
-            item.status, item.error = "failed", "missing_implementation"
-            return
-        item.invoked = True
-        internal = implementation(**dict(operation.arguments))
-        item.output = project_tool_result(internal, operation.capabilities)
-        item.status = "completed"
-    except Exception as error:
-        # Neither the internal payload nor exception text may bypass projection.
-        item.status, item.error, item.error_type = "failed", "execution_failed", type(error).__name__
-    finally:
-        item.latency_ms = (time.perf_counter() - started) * 1000
+    with telemetry.observe("tool"):
+        item.status = "running"
+        started = time.perf_counter()
+        try:
+            implementation = resolve_implementation(operation.tool)
+            if not callable(implementation):
+                item.status, item.error = "failed", "missing_implementation"
+                return
+            item.invoked = True
+            internal = implementation(**dict(operation.arguments))
+            with telemetry.observe("projection"):
+                item.output = project_tool_result(internal, operation.capabilities)
+            item.status = "completed"
+        except Exception as error:
+            telemetry.fail(error)
+            # Neither the internal payload nor exception text may bypass projection.
+            item.status, item.error, item.error_type = "failed", "execution_failed", type(error).__name__
+        finally:
+            item.latency_ms = (time.perf_counter() - started) * 1000
+
+            telemetry.operation(item)
 
 
 def execute_required(trace: ExecutionTrace, resolve_implementation: Callable[[str], Callable | None]) -> None:

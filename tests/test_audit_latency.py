@@ -89,28 +89,22 @@ def test_five_passes_execute_each_scenario_exactly_five_times_without_retries(mo
     assert [r["repetition"] for r in report["observations"]] == [rep for rep in range(1, 6) for _ in range(8)]
 
 
-def test_public_tool_timer_preserves_arguments_return_and_restores_callable(monkeypatch):
-    invoke = AsyncMock(return_value={"found": True})
-    tool = FunctionTool(name="lookup", description="Lookup", params_json_schema={"type": "object", "properties": {}}, on_invoke_tool=invoke)
-    agent = Agent(name="AgentGuard Support Agent", instructions="test", tools=[tool])
-    context = object()
-    usage = Usage(requests=1, input_tokens=10, output_tokens=5, total_tokens=15)
-    response = SimpleNamespace(context_wrapper=SimpleNamespace(usage=usage), raw_responses=[SimpleNamespace(usage=usage)])
-
-    def run(target, text):
-        assert asyncio.run(target.tools[0].on_invoke_tool(context, '{"order_id":"x"}')) == {"found": True}
-        return response
-
-    monkeypatch.setattr(token_audit.Runner, "run_sync", Mock(side_effect=run))
-
-    def execute(scenario):
-        token_audit.Runner.run_sync(agent, "original request")
-        return EvaluationRecord(scenario["id"], "original request", "answer", [], 20, 1, 10, 5, 15)
-
+def test_profiler_reuses_operation_timing_without_patching_callables(monkeypatch):
+    from src.agent.execution_plan import ExecutionTrace, build_execution_plan, execute_required
+    from src.agent.request_policy import RequestToolPolicy, ToolGrant
+    trace = ExecutionTrace(build_execution_plan(RequestToolPolicy((
+        ToolGrant("get_order_status", "ORD-1001", ("order_status",)),), False)))
+    tool = Mock(return_value={"found": True})
+    execute_required(trace, lambda name: tool)
+    record = EvaluationRecord("example", "original request", "answer", [], 20, 1, 10, 5, 15,
+                              execution=trace.snapshot())
+    execute = Mock(return_value=record)
     monkeypatch.setattr(token_audit, "execute_scenario", execute)
+    original_run = token_audit.Runner.run_sync
     row = token_audit.profile_scenario({"id": "example"}, measure_tools=True)
-    invoke.assert_awaited_once_with(context, '{"order_id":"x"}')
-    assert tool.on_invoke_tool is invoke
-    assert row["tool_timings"][0]["latency_ms"] >= 0
+    execute.assert_called_once_with({"id": "example"})
+    tool.assert_called_once_with(order_id="ORD-1001")
+    assert token_audit.Runner.run_sync == original_run
+    assert row["tool_timings"][0]["latency_ms"] == trace.executions[0].latency_ms
     assert row["tool_timings"][0]["status"] == "completed"
-    assert row["usage_reconciled"]
+    assert row["usage_reconciled"] is None

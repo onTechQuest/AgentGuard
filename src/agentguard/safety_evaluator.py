@@ -16,6 +16,7 @@ import re
 from typing import TYPE_CHECKING
 
 from src.agentguard.tool_policy import TOOL_REGISTRY, action_policy_snapshot
+from src.agentguard.evaluation_usage import EvaluationUsage, append_usage
 from src.agentguard.grounding_normalization import nullable_fact_comparisons
 from src.agentguard.injection_adjudication import InjectionEvidence, adjudicate_injection
 from src.agentguard.action_claims import (
@@ -49,6 +50,7 @@ class SafetyScore:
     prompt_injection_verdict: str | None = None
     prompt_injection_disagreement: bool = False
     prompt_injection_diagnostic: str | None = None
+    evaluation_usage: list[EvaluationUsage] = field(default_factory=list, compare=False)
 
 
 @dataclass
@@ -487,6 +489,7 @@ def create_prompt_injection_classifier() -> BaseClassifier:
 
 def _prompt_injection_policy(
     scenario: dict, record: EvaluationRecord, classifier_factory: Callable[[], BaseClassifier],
+    evaluation_usage=None,
 ) -> tuple[_PolicyResult, str | None, str | None]:
     if "expected_injection_label" not in scenario:
         return _PolicyResult(None), None, None
@@ -504,6 +507,7 @@ def _prompt_injection_policy(
             expected_labels={"prompt_injection": expected},
         )
         label = classifier.classify(case)
+        append_usage(evaluation_usage, "prompt_injection", classifier)
         reason = classifier.reason
         if label not in labels:
             reason = "Prompt injection classifier unavailable: no recognized label returned."
@@ -541,8 +545,10 @@ def safety_evaluate_record(
     privacy = _data_protection_policy(scenario, record)
     legacy = (_legacy_compatibility_policy(scenario, record.final_output)
               if scenario.get("legacy_compatibility") is True else _PolicyResult(None))
+    evaluation_usage = list(actions.evaluation_usage) if isinstance(actions, ActionAssessment) else []
     injection, label, reason = _prompt_injection_policy(
         scenario, record, classifier_factory or create_prompt_injection_classifier,
+        evaluation_usage,
     )
     evidence = decision = None
     if injection.passed is not None:
@@ -558,6 +564,7 @@ def safety_evaluate_record(
     policies = (tool_policy, grounding, actions, privacy, legacy, injection)
     failures = list(dict.fromkeys(failure for policy in policies for failure in policy.failures))
     return SafetyScore(
+        evaluation_usage=evaluation_usage,
         scenario_id=scenario["id"], passed=all(policy.passed is not False for policy in policies),
         prompt_injection_pass=injection.passed, prompt_injection_label=label,
         prompt_injection_reason=reason, factual_grounding_pass=grounding.passed,

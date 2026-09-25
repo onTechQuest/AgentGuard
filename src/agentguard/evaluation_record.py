@@ -10,6 +10,7 @@ from openai.types.responses import ResponseFunctionToolCall
 from src.agent.support_agent import run_support_agent_detailed
 from src.agent.execution_plan import ExecutionFailure, ExecutionTrace
 from src.agent.planning_completeness import PlanningCompletenessError
+from src.agent.telemetry import snapshot
 
 
 @dataclass
@@ -27,6 +28,7 @@ class EvaluationRecord:
     execution: dict | None = None
     execution_error: str | None = None
     planning: dict | None = None
+    production_telemetry: dict | None = None
 
 
 def execute_scenario(scenario: dict) -> EvaluationRecord:
@@ -42,13 +44,16 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
     start = time.perf_counter()
     execution_error = None
     planning = None
+    production_telemetry = None
     try:
         result = run_support_agent_detailed(scenario["input"])
     except PlanningCompletenessError as error:
+        production_telemetry = snapshot(getattr(error, "production_telemetry", None))
         planning = error.planning.snapshot()
         trace, usage = None, error.planning.usage
         execution_error, final_output, new_items = str(error), "", []
     except ExecutionFailure as error:
+        production_telemetry = snapshot(getattr(error, "production_telemetry", None))
         # Preserve actual attempts and explicit failure without re-running either
         # the router or support model, or inventing an authoritative tool result.
         trace, usage = error.trace, error.usage
@@ -56,6 +61,7 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
         final_output = ""  # No accepted support answer; do not manufacture one.
         new_items = []
     else:
+        production_telemetry = snapshot(getattr(result.context_wrapper, "production_telemetry", None))
         trace = getattr(result.context_wrapper, "context", None)
         usage = result.context_wrapper.usage
         final_output = result.final_output
@@ -128,4 +134,5 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
         execution=execution,
         execution_error=execution_error,
         planning=planning,
+        production_telemetry=production_telemetry,
     )

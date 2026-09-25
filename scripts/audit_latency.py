@@ -105,8 +105,8 @@ def main(argv=None, *, project_root=None):
         "latency_threshold_ms": config["quality_gates"]["p95_latency_ms"]["maximum"],
         "complete": False, "observations": [],
         "limitations": [
-            "Support phase includes tool invocation and SDK orchestration; component times are not additive with tool times.",
-            "Tool timing measures the public SDK callable including argument parsing, business lookup and projection.",
+            "Mandatory tools execute before synthesis. Tool timing includes projection; nested projection timing is not additive.",
+            "Tool timing is reused from ExecutionTrace and includes implementation lookup, business execution and projection.",
             "Provider/network/queue time cannot be separated inside a model request; transport retries are unknown.",
             "Latency includes small diagnostic overhead. SDK usage may omit tokens consumed on failed requests.",
             "Five samples per scenario: nearest-rank P95 and P99 equal maximum, not stable tail estimates.",
