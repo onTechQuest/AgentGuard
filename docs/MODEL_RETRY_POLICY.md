@@ -151,3 +151,7 @@ attempt, reserve and deadline policies; validate transient incidence, delivery
 evidence, token/cost completeness, tail latency and success benefit on the chosen
 provider/SDK path. Production activation is a later decision. No production
 values, live qualification, quality gates, datasets or CI changes are included.
+
+Milestone 13C.4A adds a separate [reliability qualification harness](RELIABILITY_QUALIFICATION.md)
+for named candidates, shadow admission analysis and controlled opt-in execution.
+It does not activate this policy for normal production requests.

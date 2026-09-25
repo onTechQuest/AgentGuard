@@ -41,16 +41,26 @@ GATE_LABELS = {
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate AgentGuard and apply release quality gates.")
     parser.add_argument(
-        "--suite", choices=(*SUITES, "performance"), default="smoke",
-        help="smoke: correctness baseline; full: regression coverage; performance: repeated production latency qualification",
+        "--suite", choices=(*SUITES, "performance", "reliability"), default="smoke",
+        help="smoke/full: correctness; performance: latency qualification; reliability: explicit candidate/shadow qualification",
     )
-    parser.add_argument("--repetitions", type=int, help="Performance only: repetitions per functional smoke scenario (default 5)")
-    parser.add_argument("--report", type=Path, help="Performance only: generated JSON report path")
+    parser.add_argument("--repetitions", type=int, help="Qualification repetitions (performance default 5; reliability uses configuration)")
+    parser.add_argument("--report", type=Path, help="Qualification JSON report path")
+    parser.add_argument("--qualification-config", type=Path, help="Reliability only: explicit candidate configuration JSON")
+    parser.add_argument("--execution-candidate", help="Reliability only: select the named execution candidate")
+    parser.add_argument("--execute-retries", action="store_true", help="Reliability only: explicitly enable the selected retry candidate")
     args = parser.parse_args(argv)
-    if args.suite != "performance" and (args.repetitions is not None or args.report is not None):
-        parser.error("--repetitions and --report require --suite performance")
+    if args.suite not in {"performance", "reliability"} and (args.repetitions is not None or args.report is not None):
+        parser.error("--repetitions and --report require a qualification suite")
     if args.suite == "performance" and args.repetitions is not None and args.repetitions < 5:
         parser.error("Performance qualification requires at least five repetitions")
+    if args.suite != "reliability" and (args.qualification_config or args.execution_candidate or args.execute_retries):
+        parser.error("Reliability policy options require --suite reliability")
+    if args.suite == "reliability":
+        if args.qualification_config is None:
+            parser.error("Reliability requires --qualification-config")
+        if args.repetitions is not None and args.repetitions < 1:
+            parser.error("Reliability repetitions must be positive")
     return args
 
 
@@ -76,6 +86,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     print("AGENTGUARD EVALUATION", flush=True)
     print(f"Evaluation Suite: {args.suite.upper()}", flush=True)
+    if args.suite == "reliability":
+        from dataclasses import replace
+        from src.agentguard.reliability_policy import load_qualification_config
+        from src.agentguard.reliability import qualify, print_summary
+        try:
+            config = load_qualification_config(args.qualification_config)
+            config = replace(config, repetitions=args.repetitions if args.repetitions is not None else config.repetitions,
+                             execution_candidate=args.execution_candidate or config.execution_candidate)
+            datasets = load_datasets(PROJECT_ROOT / "evals/datasets", suite=config.dataset_suite)
+            report = qualify(config, datasets, project_root=PROJECT_ROOT,
+                             output=args.report or PROJECT_ROOT / "reports/reliability_qualification.json",
+                             execute_retries=args.execute_retries)
+        except Exception as error:
+            # Configuration/provider error messages can contain sensitive input.
+            print(f"Reliability qualification incomplete ({type(error).__name__}). Check configuration and report destination.")
+            return 1
+        print_summary(report)
+        return 0  # Measurement completion, not a quality-gate or policy approval.
     if args.suite == "performance":
         from scripts.audit_latency import main as performance_main
         return performance_main([

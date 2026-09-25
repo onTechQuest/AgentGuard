@@ -127,6 +127,8 @@ class AttemptTelemetry:
     result_abandoned: bool = False
     delivery_certainty: str | None = None
     provider_status_code: int | None = None
+    retry_after_ms: float | None = None
+    retry_after_invalid: bool = False
 
 
 @dataclass
@@ -429,6 +431,8 @@ def attempt_failure(error, evidence):
         attempt.exception_type = name if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]{0,127}", name) else "Exception"
         attempt.delivery_certainty = evidence.delivery
         attempt.provider_status_code = evidence.status_code
+        attempt.retry_after_ms = evidence.retry_after_ms
+        attempt.retry_after_invalid = evidence.guidance_invalid
 
 
 @best_effort
