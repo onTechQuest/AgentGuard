@@ -11,7 +11,7 @@ from src.agent.tools import orders
 from src.agent import telemetry
 from src.agent.request_budget import RecoveryBudgetPolicy, RequestBudget, RequestBudgetRejected
 from src.agent.request_execution import admit, request_execution, stage
-from src.agent.qualification_budget import QualificationBudgetPolicy, qualification_execution
+from src.agent.runtime_reliability import RuntimeReliabilityPolicy, runtime_execution
 from src.agent.model_execution import run_model
 from src.agent.retry_policy import ModelRetryPolicy, request_retries
 from src.agent.capability_router import CapabilityRouter, SemanticCapabilityRouter
@@ -85,7 +85,7 @@ class _PlannedExecutionTrace(ExecutionTrace):
     planning: PlanningResult | None = None
 
 
-@qualification_execution
+@runtime_execution
 @telemetry.observe_request
 @request_execution
 @request_retries
@@ -94,7 +94,7 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
                                request_label: str | None = None,
                                request_budget: RequestBudget | None = None,
                                recovery_budget_policy: RecoveryBudgetPolicy | None = None,
-                               qualification_budget_policy: QualificationBudgetPolicy | None = None,
+                               runtime_reliability_policy: RuntimeReliabilityPolicy | None = None,
                                retry_policy: ModelRetryPolicy | None = None,
                                retry_sleeper: Callable[[float], None] | None = None,
                                retry_wall_clock: Callable[[], float] | None = None) -> RunResult:
@@ -110,7 +110,8 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
     Model attempts retry only with an explicit enabled retry_policy. Returned
     usage includes known failed attempts; production_telemetry marks incomplete
     consumption and retains attempt usage even on terminal errors.
-    Unlimited/default requests retain the existing execution behavior.
+    Default requests use the checked-in v1 runtime policy. Diagnostics may
+    intentionally supply RuntimeReliabilityPolicy.unbounded().
     """
     with stage("primary_router"):
         routed = (router if router is not None else SemanticCapabilityRouter(model=support_agent.model)).route(user_message)

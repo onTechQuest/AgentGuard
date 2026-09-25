@@ -2,8 +2,9 @@
 
 The runtime still routes, optionally recovers planning, resolves policy, executes
 required tools once, projects their results, and synthesizes with `tools=[]`.
-Explicit finite budgets now gate admission and result acceptance. Unlimited/default
-requests retain their existing behavior. No numeric production timeout,
+Finite budgets gate admission and result acceptance. Since 13C.5, production
+defaults to the [qualified v1 runtime policy](PRODUCTION_RELIABILITY_V1.md).
+Explicitly unbounded diagnostic policies retain the earlier behavior. No
 asynchronous orchestrator or thread wrapper is added. Since 13C.3B, an explicit
 [model retry policy](MODEL_RETRY_POLICY.md) can use this same budget; retries
 remain disabled by default.
@@ -13,7 +14,8 @@ remain disabled by default.
 `src/agent/request_budget.py` has no SDK dependency. `RequestBudget()` creates a
 request ID and an unlimited budget. `RequestBudget(original_budget_ms=...,
 clock=...)` accepts a finite non-negative allowance and an injectable monotonic
-clock. No numeric production default is configured. Its immutable timing fields
+clock. This primitive stays unbounded by default; the production wrapper applies
+v1's configured limits unless an explicit diagnostic policy is supplied. Its immutable timing fields
 are `started_at_monotonic`, `deadline_monotonic`, and `original_budget_ms`.
 UTC is diagnostic metadata only; it never participates in admission calculations.
 
@@ -37,9 +39,10 @@ model/tool dispatch after preparation.
 The downstream reserve bounds time; it does not allocate concurrent resource quotas.
 
 `run_support_agent_detailed(..., request_budget=budget)` accepts an optional
-budget. **Only explicitly finite budgets enable enforcement.** Default execution
-creates an unlimited budget; unlimited cancellation signals retain their earlier
-observation-only behavior. A caller-supplied budget
+budget. Default execution now applies v1 even when that argument is absent or
+unlimited. An intentional `runtime_reliability_policy=RuntimeReliabilityPolicy.unbounded()`
+override leaves an unlimited budget unenforced; its cancellation signals retain
+the earlier observation-only behavior. A caller-supplied budget
 may start before this function; request latency still measures this invocation,
 while budget remaining reflects the caller's original absolute deadline.
 Use opaque request IDs and labels, never customer identifiers or secrets.
@@ -58,7 +61,7 @@ fails closed rather than authorizing work with an unknown deadline.
 stage body completed before rejection. It propagates as a typed terminal exception,
 without being replaced by router, planning, or generic tool errors. Existing
 unlimited exception paths remain unchanged. `EvaluationRecord`'s default execution
-path remains unlimited; explicitly budgeted callers can inspect the exception's
+path now uses v1; callers can inspect the exception's
 production telemetry and, when available, execution trace/planning evidence.
 
 After successful work, the boundary checks acceptance. At the deadline itself
@@ -77,10 +80,13 @@ preemption: in-flight Python work and provider requests can finish and incur cos
 
 ## Recovery reserves
 
-Callers may pass `recovery_budget_policy=RecoveryBudgetPolicy(...)` with explicit
+Diagnostic callers using an explicit unbounded runtime policy may pass
+`recovery_budget_policy=RecoveryBudgetPolicy(...)` with explicit
 `recovery_allowance_ms`, `required_execution_reserve_ms`, `synthesis_reserve_ms`,
 and `completion_reserve_ms`. All defaults are unspecified (`None`); they introduce
-no numeric production policy. For finite budgets, admission requires remaining
+no numeric policy of their own. V1 instead owns its 3-second recovery minimum and
+6-second synthesis reserve; conflicting legacy overrides are rejected.
+For finite diagnostic budgets, admission requires remaining
 time to cover the recovery allowance plus all supplied downstream reserves.
 Exact positive requirements are admitted; zero available work allowance is denied.
 

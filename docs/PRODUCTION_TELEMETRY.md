@@ -27,8 +27,11 @@ Milestone 13C adds `request_budget=` and per-call attempt records. In 13C.2,
 explicit finite budgets enforce admission and late-result rejection in a separate
 runtime module, independent of best-effort telemetry. See [Request budget and
 attempts](REQUEST_BUDGET.md) for reserve policy, completed-versus-accepted evidence,
-cancellation semantics, and the deferred operation reliability contract. Default
-production remains unlimited, with application retries and deadlines disabled.
+cancellation semantics, and the deferred operation reliability contract. Since
+13C.5, default production uses the [v1 reliability policy](PRODUCTION_RELIABILITY_V1.md).
+`effective_runtime_policy` records its name, request/stage values, model retry
+settings and lower-layer retry configuration. Retries remain disabled; an explicit
+unbounded policy is available for diagnostics.
 
 Milestone 13C.3A adds per-span/per-attempt `lower_layer_retries_configured=False`
 on the configured production SDK path. `transport_attempts_observed` remains

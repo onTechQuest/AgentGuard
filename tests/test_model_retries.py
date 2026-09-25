@@ -11,6 +11,7 @@ from agents.usage import Usage
 from src.agent import model_execution
 from src.agent.request_budget import RequestBudget, RecoveryBudgetPolicy
 from src.agent.retry_policy import current_retry_state
+from src.agent.runtime_reliability import RuntimeReliabilityPolicy
 from test_retry_policy import policy
 from test_model_execution_transport import (
     transport, recorded_attempts, normalized_bodies, COMPONENTS,
@@ -23,7 +24,9 @@ def run(wire, **options):
         delays.append(seconds)
         wire.clock.now += seconds
     wire.delays = delays
-    return wire.run(retry_policy=options.pop("retry_policy", policy()),
+    retry = options.pop("retry_policy", policy())
+    return wire.run(retry_policy=retry,
+                    runtime_reliability_policy=RuntimeReliabilityPolicy.unbounded(model_retry_policy=retry),
                     retry_sleeper=options.pop("retry_sleeper", sleep), **options)
 
 

@@ -10,6 +10,7 @@ import pytest
 
 from src.agent import support_agent as support, telemetry
 from src.agent.request_budget import CancellationEvidence, RequestBudget, RequestDeadlineExceeded
+from src.agent.runtime_reliability import RuntimeReliabilityPolicy
 
 from .harness import Fault, Harness, Injection, PRIVATE_MARKERS, PROMPT, Stage
 
@@ -22,7 +23,8 @@ class Clock:
 
 
 def run_with_budget(harness, budget):
-    return harness.run(lambda: support.run_support_agent_detailed(PROMPT, request_budget=budget))
+    return harness.run(lambda: support.run_support_agent_detailed(
+        PROMPT, request_budget=budget, runtime_reliability_policy=RuntimeReliabilityPolicy.unbounded()))
 
 
 def attempts(data):
@@ -38,7 +40,7 @@ def comparable_history(harness):
 
 @pytest.mark.parametrize("outcome", [None, "clarification", "refusal", "unsupported_action", "not_found"])
 def test_unlimited_observation_preserves_execution(faults, outcome):
-    baseline = Harness(business_outcome=outcome).run()
+    baseline = run_with_budget(Harness(business_outcome=outcome), RequestBudget())
     for budget in (RequestBudget(), RequestBudget(clock=Clock())):
         observed = run_with_budget(Harness(business_outcome=outcome), budget)
         assert observed.caught_error is None
@@ -213,7 +215,7 @@ def test_nested_requests_restore_outer_budget(faults):
     @telemetry.observe_request
     def outer(*, request_budget):
         inner = Harness().run()
-        assert inner.telemetry["deadline_budget_ms"] is None
+        assert inner.telemetry["deadline_budget_ms"] == 20000
         assert not inner.telemetry["deadline_exhausted"]
         assert telemetry._budget.get() is outer_budget
         assert telemetry._request.get().request_id == outer_budget.request_id

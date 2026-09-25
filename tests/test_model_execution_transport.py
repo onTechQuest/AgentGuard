@@ -25,6 +25,7 @@ from openai import AsyncOpenAI
 
 from src.agent import model_execution, support_agent as support, telemetry
 from src.agent.request_budget import RequestBudget, RequestDeadlineExceeded
+from src.agent.runtime_reliability import RuntimeReliabilityPolicy
 
 
 _wire = ContextVar("test_model_wire", default=None)
@@ -286,7 +287,8 @@ def test_exhausted_budget_prevents_actual_transport_dispatch(transport):
 @pytest.mark.parametrize("component", COMPONENTS)
 def test_late_wire_response_is_abandoned_with_usage_preserved(transport, component):
     wire = transport(late_component=component, recovery=component == "recovery_planner")
-    wire.run(budget=RequestBudget(500, clock=wire.clock))
+    wire.run(budget=RequestBudget(500, clock=wire.clock),
+             runtime_reliability_policy=RuntimeReliabilityPolicy.unbounded())
     assert isinstance(wire.error, RequestDeadlineExceeded)
     assert wire.error.component == component and wire.result is None
     assert wire.attempts[component] == 1

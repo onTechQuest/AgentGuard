@@ -40,7 +40,9 @@ def test_enforcement_is_explicit_even_when_candidate_selected(enabled):
     assert run.call_count == 1
     kwargs = run.call_args.kwargs
     assert kwargs["request_budget"].original_budget_ms == (10000 if enabled else None)
-    assert kwargs.get("qualification_budget_policy") == (L.qualification_budget_policy if enabled else None)
+    runtime = kwargs["runtime_reliability_policy"]
+    assert runtime.request_deadline_ms == (10000 if enabled else None)
+    assert runtime.router_allowance_ms == (4000 if enabled else None)
     assert not kwargs["retry_policy"].enabled
 
 
@@ -112,7 +114,7 @@ def test_cli_passes_enforcement_flag_without_extra_executions(monkeypatch, tmp_p
 @pytest.mark.parametrize("failure", [None, "429", "503", "read_timeout"])
 def test_enforced_real_sdk_path_never_retries(transport, failure):
     wire = transport(failure=failure)
-    wire.run(qualification_budget_policy=L.qualification_budget_policy)
+    wire.run(runtime_reliability_policy=L.qualification_budget_policy.runtime_policy())
     assert all(count == 1 for count in wire.attempts.values())
     assert wire.observed["deadline_budget_ms"] == 10000
     attempts = [a for s in wire.observed["component_spans"] for a in s["attempts"]]
@@ -125,7 +127,7 @@ def test_enforced_real_sdk_path_never_retries(transport, failure):
 def test_real_sdk_late_completion_retains_actual_usage(transport, component, expected_tokens):
     wire = transport(late_component=component)
     policy = QualificationBudgetPolicy(10000, 500, 100, 500)
-    wire.run(budget=RequestBudget(10000, clock=wire.clock), qualification_budget_policy=policy)
+    wire.run(budget=RequestBudget(10000, clock=wire.clock), runtime_reliability_policy=policy.runtime_policy())
     assert wire.error is not None and wire.result is None
     assert wire.observed["terminal_failure_component"] == component
     assert wire.observed["result_abandoned"]

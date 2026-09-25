@@ -7,6 +7,7 @@ import pytest
 
 from src.agent import request_execution, support_agent as support
 from src.agent.qualification_budget import QualificationBudgetPolicy
+from src.agent.runtime_reliability import RuntimeReliabilityPolicy
 from src.agent.request_budget import RequestBudget
 from src.agentguard.reliability import sanitize_measurement, summarize_enforcement
 from .harness import PROMPT, Stage
@@ -19,7 +20,7 @@ R = QualificationBudgetPolicy(20000, 13000, 3000, 6000)
 
 def run_candidate(harness, policy=L, budget=None):
     return harness.run(lambda: support.run_support_agent_detailed(
-        PROMPT, qualification_budget_policy=policy,
+        PROMPT, runtime_reliability_policy=policy.runtime_policy(),
         request_budget=budget or RequestBudget(policy.request_deadline_ms, clock=harness.clock)))
 
 
@@ -156,9 +157,10 @@ def test_report_retains_rejected_usage_and_operation_counts(faults):
     assert summary["cancellation_observed"] == summary["cancellation_requested"] == 0
 
 
-def test_default_production_stays_unlimited(faults):
+def test_explicit_diagnostic_policy_stays_unlimited(faults):
     harness = TimedHarness(Clock(), durations={Stage.ROUTER: 25000, Stage.SYNTHESIS: 9000})
-    observed = harness.run(lambda: support.run_support_agent_detailed(PROMPT))
+    observed = harness.run(lambda: support.run_support_agent_detailed(
+        PROMPT, runtime_reliability_policy=RuntimeReliabilityPolicy.unbounded()))
     assert observed.caught_error is None
     assert observed.telemetry["deadline_budget_ms"] is None
     assert all(s["configured_stage_cap_ms"] is None for s in observed.telemetry["component_spans"])
@@ -173,7 +175,7 @@ def test_concurrent_candidates_are_independent(faults):
             return super().run_model(agent, *args, **kwargs)
     def evaluate(policy):
         observed = run_candidate(ConcurrentHarness(Clock(), durations={Stage.ROUTER: 5000}), policy)
-        assert request_execution._qualification_policy.get() is None
+        assert request_execution._runtime_policy.get() is None
         assert request_execution._stage_budget.get() is None
         return observed
     with ThreadPoolExecutor(2) as pool:

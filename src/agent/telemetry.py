@@ -205,6 +205,7 @@ class ProductionExecutionTelemetry:
     retry_allowance_remaining: int = 0
     retry_attempts_total: int = 0
     retry_exhausted: bool = False
+    effective_runtime_policy: dict | None = None
 
     def snapshot(self):
         """JSON-safe allowlisted observations; no source plans or tool payloads."""
@@ -356,7 +357,7 @@ def stage_budget(budget, requirements):
         span.allocated_allowance_ms = budget.original_budget_ms
         span.configured_stage_cap_ms = requirements.get("cap_ms")
         span.required_downstream_reserve_ms = requirements.get("reserve_ms", 0)
-        span.timeout_deadline_source = "qualification_stage_within_request"
+        span.timeout_deadline_source = "runtime_stage_within_request"
 
 
 @best_effort
@@ -630,6 +631,9 @@ def observe_request(function):
             if budget is None:
                 budget = RequestBudget()
             record.request_id = budget.request_id
+            policy = kwargs.get("runtime_reliability_policy")
+            if policy is not None:
+                record.effective_runtime_policy = policy.snapshot()
             label = kwargs.get("request_label")
             record.external_label = label if isinstance(label, str) else None
         except Exception:

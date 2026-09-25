@@ -15,5 +15,8 @@ Reliability measurement and shadow retry-policy comparisons are available throug
 for explicit configuration and commands. Production retries remain disabled by default.
 
 [Controlled deadline qualification](docs/CONTROLLED_DEADLINE_QUALIFICATION.md)
-documents experimental L/R policies and the explicit `--enforce-candidate-budget`
-flag. Candidate selection alone leaves deadline enforcement disabled.
+documents experimental L/R comparisons and the explicit `--enforce-candidate-budget`
+flag for qualification. Candidate selection alone leaves qualification descriptive.
+
+Normal production requests now use the [qualified v1 reliability policy](docs/PRODUCTION_RELIABILITY_V1.md):
+a 20-second request deadline, hierarchical stage limits, and no retries.

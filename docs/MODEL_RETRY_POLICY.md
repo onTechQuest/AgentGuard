@@ -2,8 +2,9 @@
 
 AgentGuard owns retry decisions at `model_execution.run_model()`. Normal requests
 still use `ModelRetryPolicy.disabled()`: `enabled=False`, `max_attempts=1`, and
-zero shared extra attempts. No production delay, deadline, reserve, or enabled
-retry allowance has been selected. Tools and whole requests are never retried.
+zero shared extra attempts. The [v1 production policy](PRODUCTION_RELIABILITY_V1.md)
+now selects deadline/reserve values, while retry delays and extra attempts remain
+disabled. Tools and whole requests are never retried.
 
 The lower-layer configuration remains `ModelRetrySettings(max_retries=0)` on
 every SDK attempt. It disables both the scoped OpenAI client retries and Agents
@@ -13,8 +14,11 @@ and its limitations for custom providers/transports.
 ## Explicit policy API
 
 `src/agent/retry_policy.py` defines immutable `ModelRetryPolicy` and `Backoff`.
-Controlled callers can pass `retry_policy=` to `run_support_agent_detailed()`.
-The existing CLI does not enable it. A policy declares:
+Controlled callers must deliberately supply a `RuntimeReliabilityPolicy` containing
+their chosen `model_retry_policy`. A loose `retry_policy=` override conflicting
+with v1 is rejected. The reliability CLI retains its separate `--execute-retries`
+opt-in for future controlled candidates; production v1 does not enable it.
+A model retry policy declares:
 
 | Field | Meaning |
 | --- | --- |

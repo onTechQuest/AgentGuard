@@ -12,6 +12,7 @@ import time
 
 from src.agent import telemetry
 from src.agent.request_budget import RequestBudget
+from src.agent.runtime_reliability import RuntimeReliabilityPolicy
 from src.agent.retry_policy import ModelRetryPolicy, classify_failure
 from src.agent.support_agent import run_support_agent_detailed
 from src.agentguard.performance import distribution
@@ -99,14 +100,17 @@ def measure_request(scenario, *, candidate, execute_retries=False, enforce_candi
     run = run or run_support_agent_detailed
     validate_enforcement(candidate, enforce_candidate_budget, execute_retries)
     budget = RequestBudget(candidate.request_budget_ms if enforce_candidate_budget else None)
-    budget_options = ({"qualification_budget_policy": candidate.qualification_budget_policy}
-                      if enforce_candidate_budget else {})
+    # Qualification is deliberately descriptive without its explicit opt-in;
+    # ordinary production callers now use v1. Diagnostics opt out intentionally.
+    retry = candidate.retry_policy if execute_retries else ModelRetryPolicy.disabled()
+    runtime_policy = (candidate.qualification_budget_policy.runtime_policy() if enforce_candidate_budget
+                      else RuntimeReliabilityPolicy.unbounded(model_retry_policy=retry))
     started = clock()
     evidence = None
     try:
         result = run(scenario["input"], request_budget=budget,
-                     **budget_options,
-                     retry_policy=candidate.retry_policy if execute_retries else ModelRetryPolicy.disabled())
+                     runtime_reliability_policy=runtime_policy,
+                     retry_policy=retry)
     except Exception as error:
         raw = telemetry.snapshot(getattr(error, "production_telemetry", None)) or {}
         status = "failed"
@@ -202,7 +206,7 @@ def _stage_measurement(span):
         "late_completion": span.get("late_completion") is True,
         "result_abandoned": span.get("result_abandoned") is True,
         "deadline_source": choice(span.get("timeout_deadline_source"),
-                                  {"request_budget", "qualification_stage_within_request"}),
+                                  {"request_budget", "qualification_stage_within_request", "runtime_stage_within_request"}),
         "allowance_exceeded": (span.get("late_completion") is True
                                and span.get("configured_stage_cap_ms") is not None
                                and (number(span.get("duration_ms")) or 0) >= span["configured_stage_cap_ms"]),

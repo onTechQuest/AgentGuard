@@ -1,10 +1,10 @@
 # Milestone 13C.4F: controlled deadline qualification
 
-Candidate L and R remain experimental. No default deadline, production model,
-prompt, dataset, gate or CI behavior changes. Normal application callers remain
-unlimited unless they explicitly pass a budget or qualification policy. Reliability
-qualification is descriptive by default, even when a selected candidate contains
-finite budget values. No live qualification was run for this implementation.
+This document describes the 13C.4F qualification harness. In 13C.5, Candidate R
+was promoted into the [v1 production policy](PRODUCTION_RELIABILITY_V1.md).
+Normal callers now use those limits by default. Reliability qualification remains
+descriptive through an explicit unbounded diagnostic policy unless candidate
+enforcement is selected. L/R experimental configurations are unchanged.
 
 ## Activation and ownership
 
@@ -15,7 +15,9 @@ Enforcement requires a complete stage policy and a disabled retry policy with
 `max_attempts=1` and `shared_extra_attempts_per_request=0`.
 The separate baseline configuration is unchanged.
 
-`QualificationBudgetPolicy` is an immutable runtime value. The outer request
+`QualificationBudgetPolicy` is now a compatibility name for the production-owned
+`StageBudgetPolicy`; qualification converts it to `RuntimeReliabilityPolicy`.
+The outer request
 wrapper creates its request budget before observation starts, and the existing
 `request_execution.stage()` boundaries perform admission and acceptance. Request
 and stage scope use context variables, not environment variables or shared global

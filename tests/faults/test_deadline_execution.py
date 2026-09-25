@@ -9,6 +9,7 @@ import pytest
 
 from src.agent import capability_router, execution_plan, request_execution, support_agent as support, telemetry
 from src.agent.request_budget import RecoveryBudgetPolicy, RequestBudget, RequestDeadlineExceeded
+from src.agent.runtime_reliability import RuntimeReliabilityPolicy
 
 from .harness import Harness, MODEL_COMPONENTS, PRIVATE_MARKERS, PROMPT, Stage
 
@@ -56,7 +57,8 @@ def run(harness, milliseconds=500, *, policy=None, budget=None):
     budget = budget if budget is not None else RequestBudget(milliseconds, clock=harness.clock)
     message = PROMPT + (" Also where is ORD-1002?" if harness.multiple else "")
     return harness.run(lambda: support.run_support_agent_detailed(
-        message, request_budget=budget, recovery_budget_policy=policy))
+        message, request_budget=budget, recovery_budget_policy=policy,
+        runtime_reliability_policy=RuntimeReliabilityPolicy.unbounded()))
 
 
 def span(observed, component):

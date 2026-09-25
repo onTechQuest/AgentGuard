@@ -6,9 +6,11 @@ functional and safety dataset scenario executes once per repetition, in dataset
 order. Comparing more policy candidates adds analysis, not production requests.
 The mode does not inject provider faults or intentionally generate rate limits.
 
-Normal application, smoke, full and performance behavior remains unchanged.
-Production retries remain disabled. No production deadline or winning retry
-policy is selected. The baseline configuration remains unlimited, single-pass,
+Since 13C.5, application, smoke, full and performance requests use the
+[v1 production policy](PRODUCTION_RELIABILITY_V1.md). Reliability qualification
+intentionally supplies an explicit unbounded diagnostic policy unless candidate
+enforcement is selected. Production retries remain disabled.
+The baseline configuration remains unlimited, single-pass,
 and no-retry. The separate experimental
 [`reliability-deadline-candidates.json`](../config/reliability-deadline-candidates.json)
 defines L/R hypotheses; presence or selection alone does not enforce them.

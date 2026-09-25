@@ -17,7 +17,7 @@ from src.agent.request_budget import (
 
 _active_budget = ContextVar("agentguard_execution_budget", default=None)
 _recovery_policy = ContextVar("agentguard_recovery_budget_policy", default=None)
-_qualification_policy = ContextVar("agentguard_qualification_budget_policy", default=None)
+_runtime_policy = ContextVar("agentguard_runtime_reliability_policy", default=None)
 _stage_budget = ContextVar("agentguard_stage_budget", default=None)
 
 
@@ -42,8 +42,8 @@ def admit(component):
     requirements = {}
     if component == "recovery_planner" and _recovery_policy.get() is not None:
         requirements = _recovery_policy.get().requirements()
-    if _qualification_policy.get() is not None:
-        requirements = _qualification_policy.get().requirements(component)
+    if _runtime_policy.get() is not None and _runtime_policy.get().request_deadline_ms is not None:
+        requirements = _runtime_policy.get().requirements(component)
     evidence = budget.admission(**requirements)
     telemetry.stage_admission(evidence)
     if not evidence.admitted:
@@ -77,7 +77,7 @@ def stage(component, *, operation=None):
             telemetry.operation(operation)
         admit(component)
         bounded = budget
-        policy = _qualification_policy.get()
+        policy = _runtime_policy.get()
         if policy is not None and budget is not None and policy.requirements(component):
             # Admission already checked. Anchor the child at this boundary;
             # repeated pre-dispatch checks must never restart the stage clock.
@@ -107,7 +107,7 @@ def request_execution(function):
         budget = kwargs.get("request_budget")
         budget_token = _active_budget.set(budget)
         policy_token = _recovery_policy.set(kwargs.get("recovery_budget_policy"))
-        qualification_token = _qualification_policy.set(kwargs.get("qualification_budget_policy"))
+        runtime_token = _runtime_policy.set(kwargs.get("runtime_reliability_policy"))
         stage_token = _stage_budget.set(None)
         try:
             result = function(*args, **kwargs)
@@ -123,7 +123,7 @@ def request_execution(function):
             return result
         finally:
             _stage_budget.reset(stage_token)
-            _qualification_policy.reset(qualification_token)
+            _runtime_policy.reset(runtime_token)
             _recovery_policy.reset(policy_token)
             _active_budget.reset(budget_token)
     return run
