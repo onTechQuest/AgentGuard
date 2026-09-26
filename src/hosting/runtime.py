@@ -115,7 +115,7 @@ class WorkerRuntime:
     No arbitrary model/provider override is accepted per request.
     """
     def __init__(self, max_workers: int, queue_capacity: int, *, client_factory: Callable = _client_factory,
-                 clock: Callable = time.monotonic, startup_timeout: float = 10):
+                 clock: Callable = time.monotonic, startup_timeout: float = 10, diagnostic_mode: bool = False):
         if type(max_workers) is not int or max_workers <= 0 or type(queue_capacity) is not int or queue_capacity < 0:
             raise ValueError("Positive max_workers and nonnegative queue_capacity required")
         _seconds(startup_timeout)
@@ -124,6 +124,7 @@ class WorkerRuntime:
         self.max_workers, self.queue_capacity = max_workers, queue_capacity
         self._clock, self._factory = clock, client_factory
         self._policy = default_runtime_policy()
+        self._diagnostic_mode = diagnostic_mode
         self._condition, self._queue = Condition(), deque()
         self._workers = [_Worker(n) for n in range(max_workers)]
         self._accepting, self._stopping = False, False
@@ -235,7 +236,8 @@ class WorkerRuntime:
         with owner.request_scope():
             try:
                 result = run_support_agent_detailed(job.message, request_label=job.label, request_budget=job.budget,
-                                                     runtime_reliability_policy=self._policy)
+                                                     runtime_reliability_policy=self._policy,
+                                                     **({"diagnostic_mode": True} if self._diagnostic_mode else {}))
                 data = telemetry.snapshot(result.context_wrapper.production_telemetry)
                 trace = result.context_wrapper.context.snapshot()
                 output, outcome = str(result.final_output), "success"

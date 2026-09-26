@@ -59,12 +59,14 @@ class PlanningResult:
     recovery_count: int = 0
     recovery_error: str | None = None
     recovery_usage: Usage | None = None
+    completeness_code: str = "NOT_EVALUATED"
 
     def snapshot(self) -> dict:
         return {
             "primary_plan": _plan_snapshot(self.primary_plan),
             "completeness_review_triggered": self.completeness_review_triggered,
             "completeness_reason": self.completeness_reason,
+            "completeness_code": self.completeness_code,
             "evidence": self.evidence,
             "recovery_attempted": self.recovery_attempted,
             "recovery_plan": self.recovery_plan.model_dump(mode="json") if self.recovery_plan else None,
@@ -160,18 +162,25 @@ def validate_planning(user_message: str, routed: RoutingResult, *,
     usage.add(routed.usage)
     result = PlanningResult(primary, primary, usage)
     if primary.capability_requests is None:
+        result.completeness_code = "LEGACY_BINDINGS"
         result.completeness_reason = "Legacy plan has no explicit empty-binding contract"
     elif primary.capability_requests:
+        result.completeness_code = "EXISTING_BINDINGS"
         result.completeness_reason = "Existing bindings retained without replanning"
     elif primary.ambiguity != "none":
+        result.completeness_code = "AMBIGUITY"
         result.completeness_reason = "Existing ambiguity requires clarification"
     elif not primary.extracted_entities.order_ids:
+        result.completeness_code = "NO_TARGET"
         result.completeness_reason = "No recognized business target"
     elif len(primary.extracted_entities.order_ids) > 1 and primary.entity_scope != "all":
+        result.completeness_code = "MULTIPLE_UNBOUND_TARGETS"
         result.completeness_reason = "Unbound multiple targets require clarification; recovery must not guess"
     elif not primary.control_signals:
+        result.completeness_code = "NO_CONTROL_SIGNALS"
         result.completeness_reason = "No control-plane inconsistency to review"
     else:
+        result.completeness_code = "REVIEW_EMPTY_BINDINGS"
         result.completeness_review_triggered = True
         result.completeness_reason = "Unambiguous empty bindings with recognized targets and control signals need semantic completeness review"
         result.evidence = _review_evidence(user_message, primary, capabilities, registry)

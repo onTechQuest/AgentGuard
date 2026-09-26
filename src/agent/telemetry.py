@@ -206,6 +206,8 @@ class ProductionExecutionTelemetry:
     retry_attempts_total: int = 0
     retry_exhausted: bool = False
     effective_runtime_policy: dict | None = None
+    decision_summary: dict = field(default_factory=dict)
+    decision_evidence: dict | None = None
 
     def snapshot(self):
         """JSON-safe allowlisted observations; no source plans or tool payloads."""
@@ -529,6 +531,8 @@ def model_result(result):
 
 @best_effort
 def planning(result):
+    from src.agent import decision_evidence
+    decision_evidence.completeness(result)
     record = _request.get()
     if record is not None:
         record.planning_summary = {"recovery_triggered": result.completeness_review_triggered,
@@ -636,6 +640,7 @@ def observe_request(function):
                 record.effective_runtime_policy = policy.snapshot()
             label = kwargs.get("request_label")
             record.external_label = label if isinstance(label, str) else None
+            record._diagnostic_mode = kwargs.get("diagnostic_mode", False) is True
         except Exception:
             record, started, budget = None, None, None
         request_token = _request.set(record)
@@ -648,10 +653,14 @@ def observe_request(function):
                 result = function(*args, **kwargs)
             except BaseException as error:
                 if record is not None:
+                    from src.agent import decision_evidence
+                    decision_evidence.finish(record, error)
                     _finish(record, started, error)
                     _attach(error, record)
                 raise
             if record is not None:
+                from src.agent import decision_evidence
+                decision_evidence.finish(record, None)
                 _finish(record, started, None)
                 _attach(result.context_wrapper, record)
             return result

@@ -174,6 +174,34 @@ class LifecycleClient:
         self.closed = True
 
 
+@pytest.mark.parametrize("diagnostic", [False, True])
+def test_worker_forwards_observation_flag_without_policy_override(monkeypatch, diagnostic):
+    from src.agent.telemetry import ProductionExecutionTelemetry
+    observed = []
+    def complete(text, **kwargs):
+        observed.append(kwargs)
+        data = ProductionExecutionTelemetry(request_id=kwargs["request_budget"].request_id)
+        if kwargs.get("diagnostic_mode"):
+            data.decision_evidence = {"schema_version": 1, "router": None}
+        return SimpleNamespace(final_output="offline", context_wrapper=SimpleNamespace(
+            production_telemetry=data, context=SimpleNamespace(snapshot=lambda: {"operations": []})))
+    monkeypatch.setattr(runtime_module, "run_support_agent_detailed", complete)
+    runtime = WorkerRuntime(1, 0, client_factory=LifecycleClient, diagnostic_mode=diagnostic)
+    collector = CampaignCollector()
+    try:
+        admission = runtime.submit("offline")
+        collector.observe(admission)
+        result = admission.result(5)
+        collector.record(result)
+    finally:
+        runtime.shutdown()
+    assert len(observed) == 1
+    assert observed[0]["runtime_reliability_policy"] == runtime._policy
+    assert observed[0].get("diagnostic_mode", False) is diagnostic
+    row = collector.snapshot(runtime.status())["requests"][0]
+    assert ("decision_evidence" in row) is diagnostic
+
+
 def test_shutdown_timeout_retains_ownership_until_blocking_work_releases(monkeypatch):
     entered, release = Event(), Event()
     def blocking(*args, **kwargs):

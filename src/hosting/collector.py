@@ -77,6 +77,8 @@ class CampaignCollector:
                          "provider_dispatches": len(dispatches),
                          "recovery_count": data.get("planning_summary", {}).get("recovery_count", 0),
                          "extra_retry_attempts": data.get("retry_attempts_total", 0), "late_result": late})
+            if data.get("decision_evidence") is not None:
+                rows[-1]["decision_evidence"] = data["decision_evidence"]
         admissions = list(self._admissions.values())
         rejected = sum(not a.accepted for a in admissions)
         outcomes["admission_rejection"] = rejected

@@ -9,6 +9,7 @@ from openai.types.responses import ResponseFunctionToolCall
 
 from src.agent.tools import orders
 from src.agent import telemetry
+from src.agent import decision_evidence
 from src.agent.request_budget import RecoveryBudgetPolicy, RequestBudget, RequestBudgetRejected
 from src.agent.request_execution import admit, request_execution, stage
 from src.agent.runtime_reliability import RuntimeReliabilityPolicy, runtime_execution
@@ -97,7 +98,8 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
                                runtime_reliability_policy: RuntimeReliabilityPolicy | None = None,
                                retry_policy: ModelRetryPolicy | None = None,
                                retry_sleeper: Callable[[float], None] | None = None,
-                               retry_wall_clock: Callable[[], float] | None = None) -> RunResult:
+                               retry_wall_clock: Callable[[], float] | None = None,
+                               diagnostic_mode: bool = False) -> RunResult:
     """Route, validate completeness, authorize, execute, and synthesize once.
 
     Runtime operations live in context_wrapper.context, and their projected
@@ -116,6 +118,7 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
     with stage("primary_router"):
         routed = (router if router is not None else SemanticCapabilityRouter(model=support_agent.model)).route(user_message)
         telemetry.usage(routed.usage)
+        decision_evidence.router(routed.decision)
     with telemetry.observe("planning_completeness"):
         planning = validate_planning(user_message, routed, recovery_factory=lambda:
                                      recovery_planner if recovery_planner is not None else
@@ -125,6 +128,7 @@ def run_support_agent_detailed(user_message: str, *, router: CapabilityRouter | 
         telemetry.policy(policy)
     with stage("execution_plan"):
         trace = _PlannedExecutionTrace(build_execution_plan(policy), planning=planning)
+        decision_evidence.execution(trace.plan)
     try:
         with telemetry.observe("required_execution"):
             execute_required(trace, lambda name: getattr(orders, name, None))
