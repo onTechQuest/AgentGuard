@@ -1,0 +1,399 @@
+version: 1
+mode: REPORT_ONLY
+context:
+  sequential_performance: Existing independent qualification P95 <= 7500 ms; unchanged.
+  request_deadline: Existing ingress-created 20000 ms budget; unchanged, not a latency percentile.
+  production_window_design: Future rolling 28-day mature-request cohorts, with 5-minute/1-hour operational views. Current reports assess qualification batches only.
+  sampling: Minimum 100 for percentile screening gives about five upper-tail observations; not statistical qualification. Success screening at 300 is motivated by a zero-failure one-sided 95% binomial bound near 99%, assuming independent representative trials; current bursts violate that representativeness assumption.
+  alert_semantics: Informational band crossings only. No pages, automation, CI failures or production enforcement.
+  readiness: Structural invariants and qualified worker envelope may proceed to 13E.3 gate-design review; no new statistical objective is production-qualified.
+candidate_reliability_objectives: [0.99, 0.995, 0.999]
+defaults:
+  population: admitted
+  window: qualification_batch
+  comparison: '<='
+  target: null
+  classification: REPORT_ONLY
+  evidence_strength: INSUFFICIENT
+  status: PROVISIONAL
+  enforcement: REPORT_ONLY
+  aggregation: rate
+  minimum_samples: 1
+metrics:
+  - metric: functional_accuracy
+    domain: CORRECTNESS
+    classification: STATISTICAL_SLO
+    target: 0.95
+    comparison: '>='
+    minimum_samples: 100
+    evidence_strength: WEAK
+    definition: Correct business answer under an applicable deterministic contract.
+    denominator: Admitted requests with applicable functional contracts; missing assessments block evaluation, explicit skips excluded.
+    rationale: Mirrors the existing 0.95 release reference for candidate design only; finite functional cases do not establish production accuracy.
+  - metric: tool_accuracy
+    domain: CORRECTNESS
+    classification: STATISTICAL_SLO
+    definition: Required tools satisfied under the applicable business contract.
+    denominator: Applicable admitted tool checks; unknown checks remain missing.
+    rationale: Track separately from authorization; a missing tool is not automatically an unsafe action. No new production rate selected.
+  - metric: argument_accuracy
+    domain: CORRECTNESS
+    classification: STATISTICAL_SLO
+    definition: Tool arguments match the applicable expected arguments.
+    denominator: Applicable admitted argument checks.
+    rationale: Existing release checks remain independent; diverse production argument evidence is insufficient for a new rate target.
+  - metric: grounded_facts
+    domain: CORRECTNESS
+    classification: STATISTICAL_SLO
+    definition: Answer and captured authoritative facts agree with the business contract.
+    denominator: Applicable admitted grounding checks.
+    rationale: Missing authoritative evidence and an affirmative fabricated claim differ; only fabrication is inherently zero-tolerance.
+  - metric: prompt_injection_resistance
+    domain: SAFETY
+    classification: STATISTICAL_SLO
+    definition: Applicable injection policy passes its semantic and trajectory adjudication.
+    denominator: Injection-applicable assessed requests; explicit None is skipped, absent assessment is unknown.
+    rationale: Functional load runs do not measure semantic attack resistance. Existing safety gates remain unchanged.
+  - metric: unsupported_action_protection
+    domain: SAFETY
+    classification: STATISTICAL_SLO
+    definition: Applicable unsupported-action policy passes.
+    denominator: Unsupported-action-applicable admitted checks.
+    rationale: Do not conflate judge unavailability or a refusal-quality issue with a proven unauthorized action.
+  - metric: data_protection
+    domain: SAFETY
+    classification: STATISTICAL_SLO
+    definition: Applicable privacy and data-minimization assessment passes.
+    denominator: Privacy-applicable admitted checks.
+    rationale: Requires privacy-specific evidence; no production percentage inferred from functional success.
+  - metric: tool_policy_enforcement
+    domain: SAFETY
+    classification: STATISTICAL_SLO
+    definition: Assessed tool behavior remains within allowed policy.
+    denominator: Admitted requests with explicit policy evidence.
+    rationale: Report policy pass rates while treating concrete authorization violations separately as invariant breaches.
+  - metric: fabrication_violations
+    domain: SAFETY
+    classification: HARD_INVARIANT
+    target: 0
+    aggregation: sum
+    status: QUALIFIED
+    evidence_strength: MODERATE
+    definition: Observed affirmative business claims contradicting authoritative evidence.
+    denominator: All admitted requests assessed for fabrication; incomplete coverage cannot establish zero.
+    rationale: Existing safety requirement, backed by deterministic/offline tests and bounded live checks, not proof of universal natural-language detection.
+  - metric: authorization_violations
+    domain: SAFETY
+    classification: HARD_INVARIANT
+    target: 0
+    aggregation: sum
+    status: QUALIFIED
+    evidence_strength: MODERATE
+    definition: Observed execution outside authorized operation scope.
+    denominator: Admitted requests with authorization and operation evidence.
+    rationale: Existing authority boundary has no statistical allowance for unauthorized execution.
+  - metric: hidden_retries
+    domain: RELIABILITY
+    classification: HARD_INVARIANT
+    target: 0
+    aggregation: sum
+    status: QUALIFIED
+    evidence_strength: MODERATE
+    definition: Observed inference retries or dispatch amplification under retry-disabled policy.
+    denominator: Requests with retry and/or dispatch instrumentation.
+    rationale: Existing no-retry requirement; zero observed retries without transport coverage is not proof of all lower layers.
+  - metric: request_success
+    domain: RELIABILITY
+    classification: STATISTICAL_SLO
+    target: 0.99
+    comparison: '>='
+    minimum_samples: 300
+    evidence_strength: WEAK
+    definition: Admitted request terminates successfully and its applicable business contract passes.
+    denominator: All admitted requests in a mature cohort, including provider/deadline/cancellation/unknown failures; pending or unassessed requests prevent PASS.
+    rationale: Initial 1-in-100 error-budget hypothesis for stakeholder review, not a selected availability commitment; 25 successes cannot substantiate it. Alternatives 99.5 and 99.9 remain mathematical options.
+  - metric: runtime_completion
+    domain: RELIABILITY
+    definition: Runtime returned a terminal success, independent of business correctness.
+    denominator: All admitted terminal requests; missing outcomes remain unknown.
+    rationale: Observability diagnostic to prevent healthy transport being mistaken for a correct business result.
+  - metric: provider_failure_rate
+    domain: RELIABILITY
+    classification: STATISTICAL_SLO
+    definition: Terminal provider failures per admitted request.
+    denominator: All admitted requests; expected capacity rejections excluded.
+    rationale: Attribution within the request-success budget, not a separately selected zero-tolerance objective.
+  - metric: rate_limit_rate
+    domain: RELIABILITY
+    classification: STATISTICAL_SLO
+    definition: Terminal provider rate limits per admitted request.
+    denominator: All admitted requests.
+    rationale: Provider 429 is not local capacity rejection; provider/quota traffic evidence is insufficient for a separate target.
+  - metric: deadline_rejection_rate
+    domain: RELIABILITY
+    classification: STATISTICAL_SLO
+    definition: Budget admission or result-acceptance rejection, before or after dispatch.
+    denominator: All admitted requests, including queued expiry.
+    rationale: Safe deadline rejection still consumes reliability budget; not a fabrication or authorization failure.
+  - metric: cancellation_rate
+    domain: RELIABILITY
+    classification: STATISTICAL_SLO
+    definition: Requests terminated by cancellation.
+    denominator: All admitted requests; cancellation counted conservatively until explicit client-initiated attribution supports a documented exclusion.
+    rationale: Do not hide cancellations as expected without caller intent evidence.
+  - metric: late_abandoned_rate
+    domain: RELIABILITY
+    classification: STATISTICAL_SLO
+    definition: Results flagged abandoned or late by request telemetry.
+    denominator: Admitted requests with complete flag coverage.
+    rationale: Independent flag may overlap deadline/cancellation; never add overlapping failure categories to derive the error budget.
+  - metric: unknown_failure_rate
+    domain: RELIABILITY
+    classification: STATISTICAL_SLO
+    definition: Terminal failure lacking a more specific outcome classification.
+    denominator: All admitted requests.
+    rationale: Unknown failures consume the success budget; missing telemetry must not silently count as success.
+  - metric: end_to_end_ms
+    domain: PERFORMANCE
+    classification: STATISTICAL_SLO
+    target: 10000
+    aggregation: p95
+    minimum_samples: 100
+    evidence_strength: WEAK
+    alert_bands: {warning: 10000, critical: 15000}
+    definition: Ingress to hosting terminal completion including queue wait, for every admitted terminal request, not successes only.
+    denominator: Comparable admitted terminal requests, stratified by worker/queue profile and request type.
+    rationale: Rounded 10s exploratory boundary above observed stage P95 maximum 9.316s; critical 15s leaves 5s before the 20s deadline. Neither is a production-qualified target.
+  - metric: service_ms
+    domain: PERFORMANCE
+    classification: STATISTICAL_SLO
+    target: 10000
+    aggregation: p95
+    minimum_samples: 100
+    evidence_strength: WEAK
+    alert_bands: {warning: 10000, critical: 13000}
+    definition: Worker service start to terminal completion, excluding queue wait.
+    denominator: Admitted requests with worker service timing, including terminal failures.
+    rationale: Rounded above observed 9.313s P95; exploratory 13s critical band plus 6s queue budget approaches the 20s deadline. Percentiles are not additive guarantees.
+  - metric: queue_wait_ms
+    domain: PERFORMANCE
+    classification: STATISTICAL_SLO
+    target: 6000
+    aggregation: p95
+    minimum_samples: 100
+    evidence_strength: WEAK
+    alert_bands: {warning: 6000, critical: 10000}
+    definition: Ingress to service start; budget is never reset on dequeue.
+    denominator: Admitted requests with hosting queue timing, including queued deadline failures.
+    rationale: Rounded above observed 5.532s P95/5.609s max; 10s critical band means half the request budget was spent waiting. Requires sustained-load evidence.
+  - metric: router_ms
+    domain: PERFORMANCE
+    aggregation: p95
+    definition: Measured primary-router component duration.
+    denominator: Requests where the router executed and timing is available.
+    rationale: Attribution only; existing 13s allowance is a runtime cap, not a new router latency SLO.
+  - metric: synthesis_ms
+    domain: PERFORMANCE
+    aggregation: p95
+    definition: Measured synthesis component duration.
+    denominator: Requests where synthesis executed and timing is available.
+    rationale: Existing 6s allowance remains separate from a statistical latency objective.
+  - metric: recovery_ms
+    domain: PERFORMANCE
+    population: recovery
+    aggregation: p95
+    definition: Measured recovery-planner duration, an additive stage observation rather than causal extra end-to-end latency.
+    denominator: Invoked recovery stages with measured timing.
+    rationale: Current successful recovery N=1 cannot establish a tail target; existing 3s reserve is unchanged.
+  - metric: offered
+    domain: CAPACITY
+    population: offered
+    aggregation: sum
+    definition: Distinct ingress offers, before admission decision.
+    denominator: Unique request IDs in the observed window, including rejected offers.
+    rationale: Demand counter, not a success criterion.
+  - metric: admitted
+    domain: CAPACITY
+    population: offered
+    aggregation: sum
+    definition: Offers accepted into a worker reservation or bounded queue.
+    denominator: All offered requests.
+    rationale: Accepted capacity is distinct from work started or completed.
+  - metric: started
+    domain: CAPACITY
+    aggregation: sum
+    definition: Admitted requests taken up by a worker, including ones rejected by budget admission before inference.
+    denominator: All admitted requests with worker-start evidence.
+    rationale: Worker start does not imply a model/tool dispatch.
+  - metric: completed
+    domain: CAPACITY
+    aggregation: sum
+    definition: Admitted requests with a terminal completion record, including errors and cancellations.
+    denominator: All admitted requests; in-flight requests remain incomplete.
+    rationale: Completion is not business success.
+  - metric: admission_ratio
+    domain: CAPACITY
+    classification: OPERATIONAL_GUARDRAIL
+    population: offered
+    comparison: '>='
+    evidence_strength: MODERATE
+    definition: Admitted divided by offered requests.
+    denominator: All offered requests, not only accepted work.
+    rationale: No acceptable production ratio selected; intentional overload rejection is not a service target.
+  - metric: capacity_rejection_rate
+    domain: CAPACITY
+    classification: OPERATIONAL_GUARDRAIL
+    population: offered
+    evidence_strength: MODERATE
+    definition: Explicit capacity_exhausted rejections divided by offered requests.
+    denominator: All offered requests; other admission errors tracked separately.
+    rationale: Stage 3's 5/15 is expected experimental backpressure, not an acceptable production rejection rate.
+  - metric: active_workers
+    domain: CAPACITY
+    classification: OPERATIONAL_GUARDRAIL
+    target: 5
+    aggregation: max
+    status: CANDIDATE
+    evidence_strength: MODERATE
+    definition: Observed peak concurrent active workers.
+    denominator: Direct runtime high-water observation within each configured campaign.
+    rationale: Five is the live-qualified envelope, not a global change to runtime capacity configuration.
+  - metric: queue_depth
+    domain: CAPACITY
+    classification: OPERATIONAL_GUARDRAIL
+    aggregation: max
+    evidence_strength: MODERATE
+    definition: Observed maximum waiting-queue depth, excluding reserved worker slots.
+    denominator: Runtime admission snapshots within a configured queue profile.
+    rationale: Compare with configured capacity during review; a peak alone cannot measure time saturated.
+  - metric: queue_saturation_fraction
+    domain: CAPACITY
+    classification: OPERATIONAL_GUARDRAIL
+    definition: Time queue was full divided by observed wall time, when queue capacity is positive.
+    denominator: Time-weighted queue observations; queue capacity zero is not applicable.
+    rationale: Existing high-water counts do not supply duration. No numeric target or synthetic time series is assumed.
+  - metric: worker_saturation_fraction
+    domain: CAPACITY
+    classification: OPERATIONAL_GUARDRAIL
+    definition: Time all configured workers were busy divided by observed wall time.
+    denominator: Time-weighted active-worker observations.
+    rationale: Sustained saturation needs repeated time-series windows; finite bursts cannot establish it.
+  - metric: throughput
+    domain: CAPACITY
+    aggregation: mean
+    definition: Terminal completions divided by observed ingress-to-last-completion seconds.
+    denominator: Campaign observation time excluding startup/shutdown and scoring.
+    rationale: Descriptive finite-burst rate; no capacity promise or throughput floor.
+  - metric: recovery_rate
+    domain: CONSUMPTION
+    definition: Admitted requests invoking recovery divided by admitted requests.
+    denominator: All admitted requests with recovery-invocation evidence.
+    rationale: Recovery is valid architecture; invocation is not automatically failure or retry.
+  - metric: recovery_success
+    domain: RELIABILITY
+    population: recovery
+    comparison: '>='
+    definition: Recovery-invoking requests that complete and satisfy their applicable business contract.
+    denominator: All recovery-invoking requests; mere returned bindings are not a successful business outcome.
+    rationale: Current successful sample N=1, with older different-contract examples; no new success threshold selected.
+  - metric: recovery_incremental_tokens
+    domain: CONSUMPTION
+    population: recovery
+    aggregation: mean
+    definition: Observed recovery request total minus comparable normal mean, reported as a descriptive contrast.
+    denominator: Recovery requests and the explicitly named normal comparison population.
+    rationale: 1644 minus 852.16 = 791.84 tokens; cross-scenario N=1 difference is not a causal estimate or a limit.
+  - metric: tokens_per_request
+    domain: CONSUMPTION
+    classification: OPERATIONAL_GUARDRAIL
+    population: normal
+    target: 1000
+    aggregation: mean
+    minimum_samples: 100
+    evidence_strength: WEAK
+    definition: Mean complete production tokens per non-recovery admitted request.
+    denominator: Comparable non-recovery requests with complete usage; missing/partial usage prevents PASS.
+    rationale: Coarse 1000-token investigation marker above measured 852.16 mean and 882 max, not a statistically derived margin or percentage. Recovery requests are excluded.
+  - metric: normal_p95_tokens
+    domain: CONSUMPTION
+    classification: OPERATIONAL_GUARDRAIL
+    population: normal
+    target: 1000
+    aggregation: p95
+    minimum_samples: 100
+    evidence_strength: WEAK
+    definition: P95 complete production tokens for comparable non-recovery requests.
+    denominator: Non-recovery admitted requests with complete usage.
+    rationale: Same coarse investigation marker as mean; 25 observations with P95/max 882 cannot qualify a production cap.
+  - metric: logical_calls_per_request
+    domain: CONSUMPTION
+    classification: OPERATIONAL_GUARDRAIL
+    population: normal
+    target: 2
+    comparison: '=='
+    aggregation: mean
+    status: CANDIDATE
+    evidence_strength: MODERATE
+    definition: Logical calls per admitted non-recovery request; provider dispatch count is separate.
+    denominator: Comparable non-recovery requests with explicit call counters.
+    rationale: Healthy normal path is router plus synthesis; early failures can use fewer calls and should be investigated without implying a safety breach. Valid recovery uses three calls and is excluded.
+  - metric: recovery_adjusted_tokens
+    domain: CONSUMPTION
+    aggregation: mean
+    definition: Observed tokens minus modeled expectation 852.16 + recovery_indicator * 791.84.
+    denominator: Complete admitted production usage with observed recovery indicator; fixed 13E.1 populations only.
+    rationale: Descriptive model residual, not an enforced excess-cost threshold; recovery baseline is N=1.
+  - metric: usage_completeness
+    domain: CONSUMPTION
+    classification: OPERATIONAL_GUARDRAIL
+    comparison: '>='
+    evidence_strength: MODERATE
+    definition: Requests with COMPLETE production usage divided by admitted requests.
+    denominator: All admitted requests, including partial/unknown usage after failures.
+    rationale: Partial usage is not zero tokens; failed provider calls may be unbillable or unknown. No unjustified 100% production gate.
+  - metric: tokens_per_second
+    domain: CONSUMPTION
+    aggregation: mean
+    definition: Complete observed production tokens divided by campaign observation seconds.
+    denominator: Same wall-time window as throughput; unavailable when usage is incomplete.
+    rationale: Consumption velocity, not cost/request or a USD spend limit. No USD dependency.
+  - metric: request_id_collision
+    domain: ISOLATION
+    classification: HARD_INVARIANT
+    target: 0
+    aggregation: sum
+    status: QUALIFIED
+    evidence_strength: MODERATE
+    definition: Observed duplicate request identities in one campaign.
+    denominator: All observed admissions and completions with identity checks.
+    rationale: Existing isolation requirement; no tolerated request-identity mixing.
+  - metric: mixed_tool_result
+    domain: ISOLATION
+    classification: HARD_INVARIANT
+    target: 0
+    aggregation: sum
+    status: QUALIFIED
+    evidence_strength: MODERATE
+    definition: Captured authoritative output belongs to another target or mismatches the deterministic oracle.
+    denominator: Requests with target/output association checks.
+    rationale: Existing per-request authoritative-evidence isolation boundary.
+  - metric: duplicate_operations
+    domain: ISOLATION
+    classification: HARD_INVARIANT
+    target: 0
+    aggregation: sum
+    status: QUALIFIED
+    evidence_strength: MODERATE
+    definition: A required tool/argument operation executes more than once per request.
+    denominator: Requests with operation-execution traces.
+    rationale: Existing exactly-once required-operation contract, not a statistical SLO.
+  - metric: telemetry_contamination
+    domain: ISOLATION
+    classification: HARD_INVARIANT
+    target: 0
+    aggregation: sum
+    status: QUALIFIED
+    evidence_strength: MODERATE
+    definition: Request or dispatch telemetry attributed to another request.
+    denominator: Requests with explicit telemetry/dispatch identity checks.
+    rationale: Existing cross-request isolation invariant; evidence loss cannot establish a zero count.
