@@ -9,9 +9,12 @@ from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 import json
 from math import isfinite
+import os
 from pathlib import Path
 import re
-from uuid import uuid4
+from tempfile import NamedTemporaryFile
+from threading import Lock
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel
 
@@ -191,9 +194,41 @@ class SafetyIncidentRecorder:
         self.run_id = uuid4().hex
         self.retain_all = retain_all
         self._metadata = None
+        self._metadata_lock = Lock()
+
+    def _directory(self):
+        # Validate before creating anything; IDs never supply path components.
+        if UUID(self.run_id).hex != self.run_id:
+            raise ValueError("Incident run ID must be a canonical UUID hex string")
+        parent = self.root
+        for name in ("reports", "safety_incidents", self.run_id):
+            child = parent / name
+            child.mkdir(parents=True, exist_ok=True)
+            resolved = child.resolve(strict=True)
+            # Compare existing filesystem identities. Non-strict resolution of
+            # missing paths can change Windows namespace spelling while another
+            # writer creates an ancestor (C:\\... versus \\\\?\\C:\\...).
+            if not resolved.parent.samefile(parent) or Path(resolved.name) != Path(name):
+                raise ValueError("Incident destination escapes reports")
+            parent = child
+        return parent
+
+    def _get_metadata(self):
+        # Only initialization on this recorder is serialized. Other recorders,
+        # requests, redactors and artifact writers remain independent.
+        with self._metadata_lock:
+            if self._metadata is None:
+                versions = {}
+                for package in ("openai-agents", "openai", "deepeval"):
+                    try:
+                        versions[package] = version(package)
+                    except PackageNotFoundError:
+                        versions[package] = None
+                self._metadata = {"git_commit": git_commit(self.root), "sdk_versions": versions}
+            return self._metadata
 
     def retain(self, scenario, record=None, score=None, *, error=None, stage=None):
-        """Best effort observer: never replace a safety verdict or retry work."""
+        """Retain selected evidence; skip ordinary passes, raise on write failure."""
         disagreement = score is not None and (score.prompt_injection_disagreement or
             score.prompt_injection_label is not None and score.prompt_injection_verdict is not None
             and score.prompt_injection_label != score.prompt_injection_verdict)
@@ -202,22 +237,31 @@ class SafetyIncidentRecorder:
             return None
         try:
             artifact = self._build(scenario, record, score, error, stage, disagreement)
-            directory = (self.root / "reports/safety_incidents" / self.run_id).resolve()
-            if not directory.is_relative_to(self.root / "reports"):
-                raise ValueError("Incident destination escapes reports")
-            directory.mkdir(parents=True, exist_ok=True)
+            directory = self._directory()
             # UUID filenames prevent collisions and path traversal; the exact
             # sanitized scenario ID is inside the record, not used as a path.
             path = directory / (uuid4().hex + ".json")
             payload = json.dumps(artifact, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
-            with path.open("x", encoding="utf-8") as output:
-                output.write(payload)
+            temporary = None
+            try:
+                with NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory,
+                                        prefix=".incident-", suffix=".tmp", delete=False) as output:
+                    temporary = Path(output.name)
+                    output.write(payload)
+                    output.flush()
+                    os.fsync(output.fileno())
+                # Same-filesystem, atomic, exclusive publication: readers never
+                # see partial JSON, and UUID collisions cannot overwrite data.
+                os.link(temporary, path)
+            finally:
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
             print(f"Safety diagnostic: {path.relative_to(self.root).as_posix()}")
             return path
         except Exception as failure:
             # No raw error message/provider response or credentials in logs.
             print(f"Safety diagnostic retention unavailable ({type(failure).__name__}).")
-            return None
+            raise
 
     def _build(self, scenario, record, score, error, stage, disagreement):
         raw = mapping(record)
@@ -246,21 +290,14 @@ class SafetyIncidentRecorder:
                       for item in execution["operations"] if item.get("invoked")] if execution else None)
             outputs = ([{"name": item["operation"].get("tool"), "call_id": item.get("call_id"), "output": item["output"]}
                         for item in execution["operations"] if item.get("status") == "completed"] if execution else None)
-        if self._metadata is None:
-            versions = {}
-            for package in ("openai-agents", "openai", "deepeval"):
-                try:
-                    versions[package] = version(package)
-                except PackageNotFoundError:
-                    versions[package] = None
-            self._metadata = {"git_commit": git_commit(self.root), "sdk_versions": versions}
+        metadata = self._get_metadata()
         policy = project(observed.get("effective_runtime_policy"), POLICY)
         measurement = sanitize_measurement(observed, status=project(observed.get("terminal_status"), None),
                                            elapsed=number(raw.get("latency_ms"))) if observed else None
         result = {
             "schema_version": 1, "run_id": self.run_id, "request_id": project(observed.get("request_id"), None),
             "scenario_id": project(scenario.get("id"), None), "timestamp": datetime.now(timezone.utc).isoformat(),
-            **self._metadata,
+            **metadata,
             "retention_reasons": [reason for condition, reason in (
                 (error is not None, "exception"), (raw.get("execution_error") is not None, "execution_failure"),
                 (score is not None and not score.passed, "safety_failure"), (disagreement, "classifier_disagreement"),

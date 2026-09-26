@@ -248,7 +248,8 @@ def test_writer_failure_is_visible_without_changing_score(tmp_path, captured, mo
         raise OSError("secret-failure-details")
     monkeypatch.setattr(recorder, "_build", broken)
     original = deepcopy(captured[2])
-    assert recorder.retain(*captured) is None
+    with pytest.raises(OSError, match="secret-failure-details"):
+        recorder.retain(*captured)
     assert captured[2] == original
     output = capsys.readouterr().out
     assert "retention unavailable (OSError)" in output and "secret-failure-details" not in output

@@ -2,21 +2,27 @@
 
 The pinned Agents SDK propagates explicit retry.max_retries=0 to its OpenAI
 adapter using client.with_options(max_retries=0), and disables its own replay
-paths. A settings-only RunConfig input preserves model/provider selection and
-the Runner-owned provider lifecycle. No client or SDK global is mutated here.
+paths. The default settings-only RunConfig preserves provider selection. An
+explicit hosting scope supplies its worker-owned provider without mutating an
+SDK global or changing the model, prompt, deadline or retry policy.
 """
 
 from agents import ModelRetrySettings, ModelSettings, Runner
 from agents.usage import Usage
 
 from src.agent import telemetry
+from src.agent.owned_transport import owned_provider
 from src.agent.request_execution import retry_admission
 from src.agent.retry_policy import RetryDecision, classify_failure, current_retry_state, error_chain
 
 
 def model_run_config() -> dict:
     """Fresh per-call configuration; no model, API, timeout or prompt overrides."""
-    return {"model_settings": ModelSettings(retry=ModelRetrySettings(max_retries=0))}
+    config = {"model_settings": ModelSettings(retry=ModelRetrySettings(max_retries=0))}
+    provider = owned_provider()
+    if provider is not None:
+        config["model_provider"] = provider
+    return config
 
 
 def run_model(agent, model_input, *, component=None, run=None, **kwargs):

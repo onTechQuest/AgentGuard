@@ -65,9 +65,23 @@ Sanitized responses are therefore diagnostic copies, not necessarily byte-for-by
 originals. Pattern matching cannot identify every arbitrary unlabeled secret in
 free text; retention should not be used as a general-purpose secret scanner.
 
-Writing is best effort: a serialization/filesystem failure prints a retention
-warning containing only the exception class and leaves the evaluation decision
-unchanged. Such a warning means evidence was not successfully retained.
+Ordinary passes that do not require retention return `None`. A selected incident
+returns its published path on success. Serialization/filesystem failures print
+only the exception class and re-raise the original exception; they never silently
+return `None`. The captured safety score is not changed. Retention failure must
+not cause the production agent or judges to execute again.
+
+Metadata initialization is protected by a per-recorder lock. Artifact construction,
+redaction, and publication use independent state, including when separate recorders
+share a run ID. No lock serializes unrelated requests or all artifact writers.
+Directory containment is checked using existing filesystem identities, avoiding
+Windows namespace spelling differences during concurrent directory creation.
+
+Each artifact is written to its own exclusively created temporary file, flushed,
+closed, and published through an atomic same-filesystem hard link. Readers of final
+JSON paths see complete artifacts. A UUID collision raises without overwriting the
+existing artifact; temporary files are cleaned up on success and failure. A
+filesystem that cannot support this publication operation fails explicitly.
 
 ## Explicit targeted diagnostic
 
