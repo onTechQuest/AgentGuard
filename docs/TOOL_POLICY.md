@@ -43,7 +43,7 @@ flowchart LR
   metadata. Its catalog has semantic descriptions, not literal prompt examples.
   `SemanticRoutingAnalysis` is an internal compatibility representation, not the
   production model's output schema.
-- `src/agent/planning_completeness.py`: reviews structurally suspicious empty
+- `src/agent/planning_completeness.py`: reviews structurally suspicious empty or narrowly scoped non-actionable
   plans with at most one tool-free recovery call. Validated recovery emits
   capabilities, targets and clarification requirements, never tool permissions.
 - `src/agentguard/tool_policy.py`: owns capability contracts and tool metadata.
@@ -108,10 +108,12 @@ classification accuracy.
 ## Planning completeness
 
 An explicit empty binding list with recognized targets, control signals and no
-known ambiguity warrants a bounded semantic review. Existing bindings, legacy
-plans without an explicit binding contract, missing targets, known ambiguity,
-unbound multiple targets without `entity_scope=all`, and absent control signals
-skip recovery. High primary-router confidence does not prove completeness.
+known ambiguity warrants a bounded semantic review. A nonempty plan also warrants
+review when all bindings describe one supported read and one recognized target,
+but low semantic confidence prevents actionability. Confident clarification,
+missing/multiple targets, competing capabilities, unsupported/unknown work and
+already actionable plans are preserved. Empty-plan eligibility is unchanged.
+High primary-router confidence does not prove completeness.
 
 The reviewer asks whether legitimate supported business work remains after
 disregarding fabricated claims and untrusted control instructions. It may return
@@ -120,9 +122,12 @@ disclosure-only requests or unsupported transactions. Registry tool/capability
 references are review evidence, not permission to execute.
 
 Recovered capabilities must be registered and permit business tools; targets must
-come from the original extracted entities. Primary confidence, control signals and
-denied disclosures are preserved. Recovery cannot clear existing ambiguity or
-authorize tools. The final plan still passes through ordinary runtime policy.
+come from the original extracted entities. Binding review cannot expand the
+original capability/target scope. Control signals and denied disclosures are
+preserved. Empty-plan recovery preserves primary confidence; binding review must
+provide a new validated semantic confidence and clarification result. Recovery
+cannot authorize tools: the final plan passes the unchanged 0.80 threshold and
+ordinary runtime policy, even when the reviewer reports resolved uncertainty.
 There is no recursive recovery. Invalid recovery output or a review exception
 raises `PlanningCompletenessError` before authorization and synthesis. See
 [planning completeness](planning_completeness.md) for telemetry and boundaries.

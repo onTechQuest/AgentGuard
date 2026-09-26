@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from src.agent import decision_evidence
 
 from src.agent.capability_router import CapabilityRequest, RequestPlan
-from src.agentguard.tool_policy import CAPABILITIES, TOOL_REGISTRY, CapabilityIntent, resolve_tool_policy
+from src.agentguard.tool_policy import CAPABILITIES, TOOL_REGISTRY, MINIMUM_CONFIDENCE, CapabilityIntent, resolve_tool_policy
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ def resolve_request_policy(plan: RequestPlan) -> RequestToolPolicy:
     Each target gets its own minimum authoritative cover. A tool for one target
     never authorizes the same operation on another mentioned order.
     """
-    decision_evidence.policy_start(plan, 0.80)
+    decision_evidence.policy_start(plan, MINIMUM_CONFIDENCE)
     if plan.capability_requests is None:
         # Older injected routers express uniform all-entity intent. Preserve their
         # existing ambiguity checks rather than guessing a role assignment.
@@ -44,7 +44,7 @@ def resolve_request_policy(plan: RequestPlan) -> RequestToolPolicy:
     else:
         requests = list(plan.capability_requests)
 
-    if not 0.80 <= plan.confidence <= 1.0:
+    if not MINIMUM_CONFIDENCE <= plan.confidence <= 1.0:
         for request in requests:
             decision_evidence.policy_binding(request, "DENIED", "CONFIDENCE_BELOW_THRESHOLD")
         result = RequestToolPolicy((), True)

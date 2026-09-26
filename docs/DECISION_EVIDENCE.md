@@ -1,8 +1,9 @@
 # Routing, completeness and policy evidence
 
-Milestone 13D.4B adds observations only. Existing routing, recovery eligibility,
-authorization thresholds, model calls, tools, and reliability policies are unchanged.
-No evaluator expectations enter production decisions.
+Milestone 13D.4B introduced observations only. Milestone 13D.4D adds bounded
+actionability-aware recovery, documented in [planning completeness](planning_completeness.md).
+Authorization thresholds and reliability policies are unchanged. No evaluator
+expectations enter production decisions.
 
 `production_telemetry.decision_summary` is compact. Detailed `decision_evidence`
 (schema version 1) is retained for runtime failures, empty plans, or explicit
@@ -16,7 +17,7 @@ The decision chain contains:
 | Section | Fields |
 | --- | --- |
 | router | Bindings, normalized targets, capability outcome, confidence, ambiguity, controls |
-| completeness | Input/final plans, branch code, review trigger, recovery entry/count/result/admission, recovered bindings |
+| completeness | Input/final plans and binding actionability, branch code, review trigger, recovery entry/count/result/admission, recovered bindings and confidence |
 | policy | Candidate plan, confidence threshold, per-binding grant/deny/clarification and reason, grants |
 | execution_plan | Grants, required tools/arguments, explicit empty reason |
 | categories | Observed distinctions; multiple may apply |
@@ -67,3 +68,10 @@ The artifact includes sanitized decisions, timing/usage and deterministic result
 flags. An exclusive pre-execution claim prevents accidental reuse of the output
 target after failure; publication is atomic and cannot overwrite prior evidence.
 No live diagnostic was performed as part of the implementation.
+
+For a separate 13D.4D validation, use a new artifact target; do not overwrite the
+13D.4B incident:
+
+```powershell
+.venv/Scripts/python.exe scripts/diagnose_decisions.py --scenario order_status_004 --execute-live --output reports/concurrency_13d4d/order_status_004.json
+```

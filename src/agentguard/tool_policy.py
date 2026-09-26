@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
 
 
 NonemptyString = Annotated[str, StringConstraints(strict=True, strip_whitespace=True, min_length=1)]
+MINIMUM_CONFIDENCE = 0.80
 ControlSignal = Literal[
     "instruction_override", "fake_system_authority", "fake_developer_authority",
     "tool_suppression_attempt", "fabricated_tool_result", "unsupported_authority_claim",
@@ -150,7 +151,7 @@ class ToolPolicy:
 
 def resolve_tool_policy(
     intent: CapabilityIntent, *, registry: Sequence[ToolCapability] = TOOL_REGISTRY,
-    capabilities: Mapping[str, Capability] = CAPABILITIES, minimum_confidence: float = 0.80,
+    capabilities: Mapping[str, Capability] = CAPABILITIES, minimum_confidence: float = MINIMUM_CONFIDENCE,
 ) -> ToolPolicy:
     """Choose an exact minimum authoritative cover with deterministic tie breaks.
 

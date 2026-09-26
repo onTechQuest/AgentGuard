@@ -29,12 +29,15 @@ def run(monkeypatch):
     monkeypatch.setattr(support, "run_model", synthesis)
 
     def invoke(bindings=(), *, controls=(), confidence=.99, recovered=(), text='Please check order "  ORD-1001  ".',
-               diagnostic=True, **kwargs):
+               diagnostic=True, recovered_confidence=None, **kwargs):
         primary = Mock(return_value=SimpleNamespace(final_output={
             "capability_requests": list(bindings), "confidence": confidence,
             "control_signals": list(controls), "denied_disclosures": []}, context_wrapper=SimpleNamespace(usage=Usage())))
         router = SemanticCapabilityRouter(run=primary)
-        planner = Mock(recover=Mock(return_value=RecoveryResult({"capability_requests": list(recovered)}, Usage())))
+        payload = {"capability_requests": list(recovered)}
+        if recovered_confidence is not None:
+            payload["confidence"] = recovered_confidence
+        planner = Mock(recover=Mock(return_value=RecoveryResult(payload, Usage())))
         result = support.run_support_agent_detailed(text, router=router, recovery_planner=planner,
                                                     diagnostic_mode=diagnostic, **kwargs)
         primary.assert_called_once()
@@ -86,7 +89,8 @@ def test_empty_without_controls_is_unassessed_not_legitimate(run):
     ([binding("unsupported_action")], .99, "CAPABILITY_PERMITS_NO_TOOL", "DENIED"),
 ])
 def test_policy_reasons_are_actual_branch_results(run, bindings, confidence, reason, result):
-    data, recovery, _ = run(bindings, confidence=confidence)
+    data, recovery, _ = run(bindings, confidence=confidence,
+                            **({"recovered": bindings, "recovered_confidence": confidence} if confidence < .8 else {}))
     chain = data.decision_evidence
     policy = chain["policy"]
     assert policy["minimum_confidence"] == .80
@@ -95,7 +99,10 @@ def test_policy_reasons_are_actual_branch_results(run, bindings, confidence, rea
     assert policy["binding_results"][0]["result"] == result
     assert policy["authorized_grants"] == []
     assert not chain["execution_plan"]["required_operations"]
-    recovery.recover.assert_not_called()
+    if confidence < .8:
+        recovery.recover.assert_called_once()
+    else:
+        recovery.recover.assert_not_called()
 
 
 def test_exact_confidence_boundary_unchanged(run):
