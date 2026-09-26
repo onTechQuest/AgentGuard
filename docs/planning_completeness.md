@@ -14,7 +14,13 @@ Controls plus entities identify a conservative candidate for review, not proof o
 
 ## One semantic recovery call
 
-The tool-free reviewer uses the same model and unchanged instruction text. Existing empty-plan review retains the `RecoveryPlan` schema with only `capability_requests`. The new binding-actionability path uses `ActionabilityRecoveryPlan`, which additionally requires a strictly validated semantic `confidence` between zero and one. This is a structured output contract extension, not a deterministic confidence increase. A missing confidence fails closed. Neither schema can emit grants or disclosure permissions.
+Both review paths remain tool-free and use the same model. Existing empty-plan review retains its omitted-work instructions and `RecoveryPlan` schema with only `capability_requests`. Milestone 13D.4G gives binding-actionability review separate instructions: independently reconsider whether the primary confidence, clarification requirement, capability selection and target binding are justified. The primary plan is a hypothesis; agreement remains valid when supported by the request.
+
+`ActionabilityRecoveryPlan` requires `capability_requests`, a strictly validated `confidence` between zero and one, and an explicit boolean `needs_clarification` on every binding. Missing semantic fields fail both local and SDK validation; no default clarification flag is supplied. Additional fields are forbidden. Neither schema can emit grants or disclosure permissions.
+
+Actionability confidence means the reviewer's independent confidence that the proposed capability/target interpretation reflects the user's business intent. It does not measure tool success, order existence, final-answer correctness or a desire to authorize. The value is never clamped or promoted. Instructions prohibit increasing confidence merely to cross a policy threshold and do not disclose the numeric authorization threshold.
+
+Clarification is required for material semantic ambiguity, including multiple plausible targets, competing capabilities, a missing target or genuinely ambiguous intent. Primary uncertainty alone does not require preserving uncertainty: the reviewer may remove it only when the request and recognized target make the business intent sufficiently clear. It may instead preserve uncertainty or return no bindings. The existing conservative review eligibility and deterministic scope checks remain unchanged.
 
 The review distinguishes live verification requests from hypothetical examples, quotations, documentation, mere references, disclosure-only requests and prohibited transactions. It can return an empty list; that confirms an empty plan without a tool call. This distinction is semantic, so mocked offline tests validate the boundaries and orchestration, not real-model classification accuracy.
 
@@ -25,6 +31,8 @@ There is no recursive replan or application retry. A malformed recovery, invalid
 ## Telemetry and cost
 
 `RunResult.context_wrapper.context.planning` exposes `PlanningResult`; `EvaluationRecord.planning` stores its serializable snapshot, including primary/final plans, trigger/reason, structured review evidence, recovery attempted/count, recovered plan, source (`primary` or `recovered`), sanitized error type, and reported recovery usage. Required-tool failures also retain this planning snapshot.
+
+Decision evidence identifies `review_type` (`omitted_work` or `binding_actionability`), primary/recovered confidence and clarification, and `scope_preservation` (`NOT_CHECKED`, `PRESERVED`, or `REJECTED`). Schema-valid output is retained even when scope validation rejects it; it never replaces the primary plan in that case. `semantic_state_source=RECOVERY_OUTPUT` identifies explicitly returned semantic state, not a verified improvement in judgment. Policy results and required operations remain separate downstream evidence.
 
 Ordinary actionable requests keep their existing model-call count. A triggered review adds at most one tool-free model request (`max_turns=1`), even when it confirms no business work. The same recovery admission, request deadline and downstream synthesis reserve apply; this is not a retry. A recovered lookup normally uses three model responses: primary routing, recovery, and answer synthesis. The required read still executes deterministically before synthesis, and the support model still has no tools.
 

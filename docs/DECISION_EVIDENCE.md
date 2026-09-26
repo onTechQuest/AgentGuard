@@ -17,7 +17,7 @@ The decision chain contains:
 | Section | Fields |
 | --- | --- |
 | router | Bindings, normalized targets, capability outcome, confidence, ambiguity, controls |
-| completeness | Input/final plans and binding actionability, branch code, review trigger, recovery entry/count/result/admission, recovered bindings and confidence |
+| completeness | Input/final plans and binding actionability, branch code, review trigger/type, recovery entry/count/result/admission, recovered bindings and confidence, scope-preservation result, semantic-state source |
 | policy | Candidate plan, confidence threshold, per-binding grant/deny/clarification and reason, grants |
 | execution_plan | Grants, required tools/arguments, explicit empty reason |
 | categories | Observed distinctions; multiple may apply |
@@ -69,9 +69,23 @@ flags. An exclusive pre-execution claim prevents accidental reuse of the output
 target after failure; publication is atomic and cannot overwrite prior evidence.
 No live diagnostic was performed as part of the implementation.
 
+Actionability review records primary confidence and binding clarification separately
+from recovered confidence and clarification. `review_type` distinguishes omitted
+work from binding actionability. `scope_preservation` is `NOT_CHECKED`, `PRESERVED`
+or `REJECTED`; validated recovery output remains visible on scope rejection, but
+does not become the final plan. `semantic_state_source=RECOVERY_OUTPUT` means the
+reviewer explicitly supplied that state; it does not certify semantic correctness.
+Policy results and required operations show whether that proposal was authorized.
+
 For a separate 13D.4D validation, use a new artifact target; do not overwrite the
 13D.4B incident:
 
 ```powershell
 .venv/Scripts/python.exe scripts/diagnose_decisions.py --scenario order_status_004 --execute-live --output reports/concurrency_13d4d/order_status_004.json
+```
+
+For one later 13D.4G contract validation, use a new target:
+
+```powershell
+.venv/Scripts/python.exe scripts/diagnose_decisions.py --scenario order_status_004 --execute-live --output reports/concurrency_13d4g/order_status_004.json
 ```

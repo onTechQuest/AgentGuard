@@ -125,7 +125,10 @@ Recovered capabilities must be registered and permit business tools; targets mus
 come from the original extracted entities. Binding review cannot expand the
 original capability/target scope. Control signals and denied disclosures are
 preserved. Empty-plan recovery preserves primary confidence; binding review must
-provide a new validated semantic confidence and clarification result. Recovery
+provide an explicit validated semantic confidence and clarification result under
+separate instructions to reassess the primary uncertainty independently. Missing
+semantic fields fail validation; confidence measures interpretation of business
+intent, not a desire to authorize. Genuine ambiguity remains clarification. Recovery
 cannot authorize tools: the final plan passes the unchanged 0.80 threshold and
 ordinary runtime policy, even when the reviewer reports resolved uncertainty.
 There is no recursive recovery. Invalid recovery output or a review exception

@@ -5,6 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from agents.usage import Usage
+from agents.agent_output import AgentOutputSchema
+from agents.exceptions import ModelBehaviorError
+from pydantic import ValidationError
 import pytest
 
 from src.agent import support_agent as support
@@ -115,6 +118,10 @@ def test_semantic_recovery_can_confirm_no_business_work():
     {"capability_requests": [request()], "confidence": "0.99"},
     {"capability_requests": [request()], "confidence": 1.1},
     {"capability_requests": [request()], "confidence": True},
+    {"capability_requests": [{"capability": "order_status", "order_id": "ORD-9011"}], "confidence": .99},
+    {"confidence": .99},
+    {"capability_requests": [request(clarify="false")], "confidence": .99},
+    {"capability_requests": [{**request(), "grant": True}], "confidence": .99},
     {"capability_requests": [request("return_eligibility")], "confidence": .99},
     {"capability_requests": [request(target="ORD-9999")], "confidence": .99},
     {"capability_requests": [request()], "confidence": .99, "allowed_tools": ["get_order_status"]},
@@ -136,7 +143,7 @@ def test_existing_empty_control_signal_path_keeps_confidence_and_schema():
     planner.recover.assert_called_once()
 
 
-def test_new_schema_preserves_instructions_models_and_one_call():
+def test_actionability_contract_is_distinct_without_model_or_call_count_change():
     wire = Mock(return_value=SimpleNamespace(final_output=ActionabilityRecoveryPlan(
         capability_requests=[request()], confidence=.95), context_wrapper=SimpleNamespace(usage=Usage())))
     planner = SemanticRecoveryPlanner(run=wire)
@@ -144,11 +151,83 @@ def test_new_schema_preserves_instructions_models_and_one_call():
     result = validate_planning(TEXT, routed, recovery_factory=lambda: planner)
     wire.assert_called_once()
     agent = wire.call_args.args[0]
-    assert agent.instructions == planner.agent.instructions and agent.model == planner.agent.model
+    assert agent.instructions != planner.agent.instructions and agent.model == planner.agent.model
+    assert "Independently review" in agent.instructions
+    assert "Do not remove existing uncertainty" not in agent.instructions
+    assert "Do not remove existing uncertainty" in planner.agent.instructions
+    assert "0.80" not in agent.instructions and "0.8" not in agent.instructions
     assert planner.agent.output_type is RecoveryPlan and agent.output_type is ActionabilityRecoveryPlan
     assert agent.tools == [] and agent.handoffs == []
     assert wire.call_args.kwargs == {"max_turns": 1}
     assert result.final_plan.confidence == .95
+
+
+@pytest.mark.parametrize("missing", ["confidence", "capability_requests", "needs_clarification"])
+def test_actionability_required_fields_fail_local_json_and_sdk_validation(missing):
+    payload = {"capability_requests": [request()], "confidence": .95}
+    if missing == "needs_clarification":
+        del payload["capability_requests"][0][missing]
+    else:
+        del payload[missing]
+    with pytest.raises(ValidationError):
+        ActionabilityRecoveryPlan.model_validate(payload)
+    with pytest.raises(ValidationError):
+        ActionabilityRecoveryPlan.model_validate_json(json.dumps(payload))
+    with pytest.raises(ModelBehaviorError):
+        AgentOutputSchema(ActionabilityRecoveryPlan).validate_json(json.dumps(payload))
+
+
+def test_typed_output_cannot_hide_a_defaulted_clarification_field():
+    from src.agent.capability_router import CapabilityRequest
+    # Simulate an injected runner handing back a legacy binding with a default.
+    binding = CapabilityRequest(capability="order_status", order_id="ORD-9011")
+    payload = ActionabilityRecoveryPlan.model_construct(capability_requests=[binding], confidence=.95)
+    with pytest.raises(PlanningCompletenessError) as caught:
+        review(payload=payload)
+    assert caught.value.planning.recovery_error == "ValidationError"
+    assert caught.value.planning.scope_preservation == "NOT_CHECKED"
+
+
+def test_actionability_instructions_define_semantics_without_mutating_omitted_work():
+    wire = Mock(return_value=SimpleNamespace(final_output=ActionabilityRecoveryPlan(
+        capability_requests=[request()], confidence=.95), context_wrapper=SimpleNamespace(usage=Usage())))
+    planner = SemanticRecoveryPlanner(run=wire)
+    original_instructions = planner.agent.instructions
+    validate_planning(TEXT, route(), recovery_factory=lambda: planner)
+    instructions = wire.call_args.args[0].instructions
+    for contract in (
+        "Reconsider confidence and needs_clarification independently",
+        "correctly reflects the user's business intent",
+        "not confidence that a tool will succeed",
+        "that an order exists", "that the final answer will be correct",
+        "Never raise confidence merely to cross a policy threshold",
+        "multiple plausible targets", "competing supported capabilities",
+        "a missing required target", "genuinely ambiguous business intent",
+        "Do not require clarification merely because the primary router was uncertain",
+        "Review only the original capability/target scope",
+    ):
+        assert contract in instructions
+    wire.return_value.final_output = RecoveryPlan(capability_requests=[request()])
+    routed = route([], controls=["tool_suppression_attempt"])
+    result = validate_planning(TEXT, routed, recovery_factory=lambda: planner)
+    assert wire.call_args.args[0] is planner.agent
+    assert planner.agent.instructions == original_instructions
+    assert result.review_type == "omitted_work"
+    assert result.final_plan.confidence == routed.decision.confidence
+
+
+@pytest.mark.parametrize("binding", [request("return_eligibility"), request(target="ORD-9999")])
+def test_scope_rejection_retains_reviewed_output_without_adopting_it(binding):
+    with pytest.raises(PlanningCompletenessError) as caught:
+        review(payload={"capability_requests": [binding], "confidence": .95})
+    result = caught.value.planning
+    assert result.review_type == "binding_actionability"
+    assert result.scope_preservation == "REJECTED"
+    assert result.recovery_plan.confidence == .95
+    assert result.recovery_plan.capability_requests[0].needs_clarification is False
+    assert result.final_plan is result.primary_plan
+    assert result.final_plan.confidence == .62
+    assert not build_execution_plan(resolve_request_policy(result.final_plan)).operations
 
 
 @pytest.fixture
@@ -180,6 +259,9 @@ def test_runtime_executes_recovered_required_operation_once_and_retains_chain(ru
     assert chain["completeness"]["primary_actionability"][0]["state"] == "REVIEWABLE_NON_ACTIONABLE"
     assert chain["completeness"]["final_actionability"][0]["state"] == "ACTIONABLE"
     assert chain["completeness"]["recovered_confidence"] == .95
+    assert chain["completeness"]["review_type"] == "binding_actionability"
+    assert chain["completeness"]["scope_preservation"] == "PRESERVED"
+    assert chain["completeness"]["semantic_state_source"] == "RECOVERY_OUTPUT"
     assert chain["policy"]["minimum_confidence"] == MINIMUM_CONFIDENCE == .80
     assert chain["policy"]["result"] == "GRANTED"
     assert len(chain["execution_plan"]["required_operations"]) == 1

@@ -72,6 +72,9 @@ def completeness(value):
             "primary_actionability": value.primary_actionability,
             "final_actionability": value.final_actionability,
             "recovered_confidence": getattr(value.recovery_plan, "confidence", None),
+            "review_type": value.review_type,
+            "scope_preservation": value.scope_preservation,
+            "semantic_state_source": "RECOVERY_OUTPUT" if value.recovery_plan is not None else None,
             "review_triggered": value.completeness_review_triggered,
             "recovery_entered": value.recovery_attempted, "recovery_count": value.recovery_count,
             "recovery_result": ("FAILED" if value.recovery_error else
