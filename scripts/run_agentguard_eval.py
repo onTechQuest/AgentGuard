@@ -17,6 +17,7 @@ from src.agentguard.scorecard import build_scorecard
 from src.agentguard.scoring import evaluate_record
 from src.agentguard.semantic_evaluator import evaluate_semantics
 from src.agentguard.safety_evaluator import safety_evaluate_record
+from src.agentguard.safety_incidents import SafetyIncidentRecorder
 
 
 GATE_LABELS = {
@@ -41,16 +42,37 @@ GATE_LABELS = {
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate AgentGuard and apply release quality gates.")
     parser.add_argument(
-        "--suite", choices=(*SUITES, "performance"), default="smoke",
-        help="smoke: correctness baseline; full: regression coverage; performance: repeated production latency qualification",
+        "--suite", choices=(*SUITES, "performance", "reliability"), default="smoke",
+        help="smoke/full: correctness; performance: latency qualification; reliability: explicit candidate/shadow qualification",
     )
-    parser.add_argument("--repetitions", type=int, help="Performance only: repetitions per functional smoke scenario (default 5)")
-    parser.add_argument("--report", type=Path, help="Performance only: generated JSON report path")
+    parser.add_argument("--repetitions", type=int, help="Qualification repetitions (performance default 5; reliability uses configuration)")
+    parser.add_argument("--report", type=Path, help="Qualification JSON report path")
+    parser.add_argument("--release-qualification", action="store_true", help="Enforce the 16 structural gates using fresh offline qualification evidence")
+    parser.add_argument("--structural-evidence", type=Path, help="Current-revision offline production transport evidence")
+    parser.add_argument("--release-report", type=Path, help="New release bundle output path (never overwritten)")
+    parser.add_argument("--qualification-config", type=Path, help="Reliability only: explicit candidate configuration JSON")
+    parser.add_argument("--execution-candidate", help="Reliability only: select the named execution candidate")
+    parser.add_argument("--execute-retries", action="store_true", help="Reliability only: explicitly enable the selected retry candidate")
+    parser.add_argument("--enforce-candidate-budget", action="store_true",
+                        help="Reliability only: explicitly enforce experimental request/stage budgets; no retries")
     args = parser.parse_args(argv)
-    if args.suite != "performance" and (args.repetitions is not None or args.report is not None):
-        parser.error("--repetitions and --report require --suite performance")
+    if args.release_qualification and args.suite not in SUITES:
+        parser.error("Release qualification requires smoke/full correctness mode")
+    if not args.release_qualification and (args.structural_evidence or args.release_report):
+        parser.error("Structural evidence/output require --release-qualification")
+    if args.suite not in {"performance", "reliability"} and (args.repetitions is not None or args.report is not None):
+        parser.error("--repetitions and --report require a qualification suite")
     if args.suite == "performance" and args.repetitions is not None and args.repetitions < 5:
         parser.error("Performance qualification requires at least five repetitions")
+    if args.suite != "reliability" and (args.qualification_config or args.execution_candidate or args.execute_retries or args.enforce_candidate_budget):
+        parser.error("Reliability policy options require --suite reliability")
+    if args.enforce_candidate_budget and args.execute_retries:
+        parser.error("Candidate budget qualification cannot enable retries")
+    if args.suite == "reliability":
+        if args.qualification_config is None:
+            parser.error("Reliability requires --qualification-config")
+        if args.repetitions is not None and args.repetitions < 1:
+            parser.error("Reliability repetitions must be positive")
     return args
 
 
@@ -76,6 +98,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     print("AGENTGUARD EVALUATION", flush=True)
     print(f"Evaluation Suite: {args.suite.upper()}", flush=True)
+    if args.suite == "reliability":
+        from dataclasses import replace
+        from src.agentguard.reliability_policy import load_qualification_config
+        from src.agentguard.reliability import qualify, print_summary
+        try:
+            config = load_qualification_config(args.qualification_config)
+            config = replace(config, repetitions=args.repetitions if args.repetitions is not None else config.repetitions,
+                             execution_candidate=args.execution_candidate or config.execution_candidate)
+            datasets = load_datasets(PROJECT_ROOT / "evals/datasets", suite=config.dataset_suite)
+            report = qualify(config, datasets, project_root=PROJECT_ROOT,
+                             output=args.report or PROJECT_ROOT / "reports/reliability_qualification.json",
+                             execute_retries=args.execute_retries,
+                             enforce_candidate_budget=args.enforce_candidate_budget)
+        except Exception as error:
+            # Configuration/provider error messages can contain sensitive input.
+            print(f"Reliability qualification incomplete ({type(error).__name__}). Check configuration and report destination.")
+            return 1
+        print_summary(report)
+        return 0  # Measurement completion, not a quality-gate or policy approval.
     if args.suite == "performance":
         from scripts.audit_latency import main as performance_main
         return performance_main([
@@ -120,18 +161,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     safety_scores = []
     safety_records = []
+    incidents = SafetyIncidentRecorder(PROJECT_ROOT)
     for scenario in safety_scenarios:
         stage = "execution"
+        record = None
         try:
             record = execute_scenario(scenario)
             if record.execution_error is not None:
+                incidents.retain(scenario, record, stage=stage)
                 print(f"\nScenario {scenario['id']}: {record.execution_error}.")
                 print("Evaluation incomplete.\nFINAL DECISION: FAIL")
                 return 1
             safety_records.append(record)
             stage = "safety evaluation"
-            safety_scores.append(safety_evaluate_record(scenario, record))
+            score = safety_evaluate_record(scenario, record)
+            safety_scores.append(score)
+            incidents.retain(scenario, record, score)
         except Exception as error:
+            incidents.retain(scenario, record, error=error, stage=stage)
             print(f"\nScenario {scenario['id']}: {stage} failed ({type(error).__name__}).")
             print("Evaluation incomplete.\nFINAL DECISION: FAIL")
             return 1
@@ -228,6 +275,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{GATE_LABELS[check['metric']]} {status}")
     for failure in gate.failures:
         print(f"  - {failure}")
+    if args.release_qualification:
+        from scripts.qualify_release import assemble_release
+        report = assemble_release(PROJECT_ROOT,
+            structural_path=args.structural_evidence or PROJECT_ROOT/'reports/release_13e4/transport.json',
+            quality_result=gate, deployment={'active': False, 'source': 'sequential smoke/full runner'},
+            records=[*(record for record, _ in records_and_scores), *safety_records],
+            slo_path=PROJECT_ROOT/'reports/slo_13e2/scorecard_final.json',
+            cost_path=PROJECT_ROOT/'reports/cost_13e1/baseline.json',output=args.release_report)
+        print(f"FINAL DECISION: {report['decision']}")
+        return report['exit_code']
     print(f"\nFINAL DECISION: {'PASS' if gate.passed else 'FAIL'}")
     return 0 if gate.passed else 1
 

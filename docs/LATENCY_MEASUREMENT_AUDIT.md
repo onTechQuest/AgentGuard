@@ -5,6 +5,12 @@ semantics. The finalized CLI and gate separation are documented in
 [Performance qualification](PERFORMANCE_QUALIFICATION.md); the measured evidence
 below is preserved unchanged.
 
+The diagnostic implementation described below is historical. Milestone 13A now
+consumes [request-local production telemetry](PRODUCTION_TELEMETRY.md) without
+patching Runner/tool callables. Mandatory tools execute before synthesis, and
+their timing includes projection. The older support-phase measurements below
+describe the architecture at the time of that diagnostic, not the current path.
+
 ## Current release metric
 
 `scripts/run_agentguard_eval.py` supplies eight functional smoke records to

@@ -73,10 +73,12 @@ callers. The correctness CLI explicitly selects `latency_mode="report_only"`.
 Only that gate entry gets `passed=None, enforced=False`; all other comparisons
 and unavailable-metric failures are unchanged.
 
-Production usage comes exclusively from EvaluationRecord, covering router,
-support-agent turns and tools. Evaluator objects are not usage inputs. Separate
-semantic-judge/safety-classifier cost reporting can be added later without
-changing these populations; no judge-usage capture is required or fabricated now.
+Production usage comes exclusively from EvaluationRecord: model tokens cover
+primary routing, optional planning recovery and synthesis; latency also includes
+deterministic tool execution and projection before synthesis. Evaluator objects
+are not production usage inputs. Milestone 13A adds separate available judge
+counters and [request-local component telemetry](PRODUCTION_TELEMETRY.md) without
+changing these populations, formulas or gates.
 
 ## Performance qualification
 

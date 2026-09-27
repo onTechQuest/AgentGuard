@@ -1,0 +1,12 @@
+{
+  "name": "production_v1",
+  "request_deadline_ms": 20000,
+  "router_allowance_ms": 13000,
+  "recovery_reserve_ms": 3000,
+  "synthesis_allowance_ms": 6000,
+  "model_retry_policy": {
+    "enabled": false,
+    "max_attempts": 1,
+    "shared_extra_attempts_per_request": 0
+  }
+}

@@ -6,14 +6,14 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from agents import Model, RunConfig
+from agents import Model
 from agents.items import ModelResponse
 from agents.usage import Usage
 from openai.types.responses import ResponseFunctionToolCall, ResponseOutputMessage, ResponseOutputText
 
 from src.agent import support_agent as support
 from src.agent.capability_router import SemanticCapabilityRouter
-from src.agent.planning_completeness import RecoveryPlan, RecoveryResult
+from src.agent.planning_completeness import ActionabilityRecoveryPlan, RecoveryPlan, RecoveryResult
 from src.agent.execution_plan import (
     ExecutionFailure, ExecutionTrace, Operation, OperationMode, build_execution_plan,
     execute_operation, execute_required,
@@ -60,7 +60,7 @@ def offline_sdk(monkeypatch, model):
     original = support.Runner.run_sync
     monkeypatch.setattr(support, "support_agent", support.support_agent.clone(model=model))
     monkeypatch.setattr(support.Runner, "run_sync", lambda agent, message, **kwargs:
-                        original(agent, message, run_config=RunConfig(tracing_disabled=True), **kwargs))
+                        original(agent, message, run_config={**kwargs.pop("run_config", {}), "tracing_disabled": True}, **kwargs))
 
 
 @pytest.mark.parametrize("capabilities,tool", [
@@ -111,12 +111,18 @@ def test_no_obligations_without_valid_authorized_business_binding(monkeypatch, r
     monkeypatch.setattr(support.orders, "check_return_eligibility", business)
     model = AnswerModel()
     offline_sdk(monkeypatch, model)
-    recovery = Mock(recover=Mock(return_value=RecoveryResult(RecoveryPlan(capability_requests=[]), Usage())))
+    recovered = (ActionabilityRecoveryPlan(capability_requests=[], confidence=changes["confidence"])
+                 if requests and "confidence" in changes else RecoveryPlan(capability_requests=[]))
+    recovery = Mock(recover=Mock(return_value=RecoveryResult(recovered, Usage())))
     result = support.run_support_agent_detailed("Request involving ORD-1001", router=router(requests, **changes),
                                                recovery_planner=recovery)
     business.assert_not_called()
     assert result.context_wrapper.context.plan.operations == ()
     assert model.inputs == [[{"role": "user", "content": "Request involving ORD-1001"}]]
+    if "confidence" in changes or changes.get("control_signals"):
+        recovery.recover.assert_called_once()
+    else:
+        recovery.recover.assert_not_called()
 
 
 def test_unclear_component_does_not_erase_clear_required_work(monkeypatch):

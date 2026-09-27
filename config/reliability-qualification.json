@@ -1,0 +1,17 @@
+{
+  "dataset_suite": "smoke",
+  "repetitions": 1,
+  "execution_candidate": "baseline_no_retry",
+  "recovery_scenario_ids": [],
+  "candidates": [
+    {
+      "name": "baseline_no_retry",
+      "request_budget_ms": null,
+      "retry_policy": {
+        "enabled": false,
+        "max_attempts": 1,
+        "shared_extra_attempts_per_request": 0
+      }
+    }
+  ]
+}

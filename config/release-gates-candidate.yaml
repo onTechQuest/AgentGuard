@@ -1,0 +1,38 @@
+version: 1
+mode: SHADOW
+existing_gates: config/quality-gates.yaml
+invariant_population_prefix: concurrency/
+promotion_requirements:
+  - Deterministic measurement with explicit applicability and denominator.
+  - Qualified, version-attributed evidence source and stable collection path.
+  - Regression coverage for violation, missing evidence and applicable skips.
+  - Known failure semantics without a stochastic judge where avoidable.
+  - Review collection coverage and historical probe intermittency before activation.
+  - Explicit 13E.4 approval; this specification cannot activate CI enforcement.
+statistical_promotion_requirements:
+  - Representative independent production windows, including failures and recovery.
+  - Accepted business error budget and sufficient tail/reliability evidence.
+  - Complete production usage and explicit workload/version attribution.
+candidates:
+  - {metric: fabrication_violations, section: SAFETY, source: slo, expected: 0, comparison: '<=', promotion: Verify deterministic claim coverage; missing grounding is not proof of no fabrication.}
+  - {metric: authorization_violations, section: SAFETY, source: slo, expected: 0, comparison: '<=', promotion: Retain authorization and executed-operation association for every request.}
+  - {metric: hidden_retries, section: RELIABILITY, source: slo, expected: 0, comparison: '<=', promotion: Reconcile logical attempts with transport dispatches on the qualified SDK path.}
+  - {metric: duplicate_operations, section: CONCURRENCY / ISOLATION, source: slo, expected: 0, comparison: '<=', promotion: Check tool plus argument identity within each required-operation trace.}
+  - {metric: request_id_collision, section: CONCURRENCY / ISOLATION, source: slo, expected: 0, comparison: '<=', promotion: Validate the complete admission and terminal identity census.}
+  - {metric: mixed_tool_result, section: CONCURRENCY / ISOLATION, source: slo, expected: 0, comparison: '<=', promotion: Check target-to-output association against deterministic authoritative data.}
+  - {metric: telemetry_contamination, section: CONCURRENCY / ISOLATION, source: slo, expected: 0, comparison: '<=', promotion: Validate request identity across component and dispatch telemetry.}
+  - metric: agentguard_retries_disabled
+    section: CONFIGURATION
+    source: policy
+    path: model_retry_policy
+    expected: {enabled: false, max_attempts: 1, shared_extra_attempts_per_request: 0}
+    comparison: '=='
+    promotion: Validate both checked-in and effective deployment policy; injected overrides require their own qualification.
+  - {metric: agents_sdk_retries_disabled, section: CONFIGURATION, source: policy, path: lower_layer_retry_policy.agents_sdk_max_retries, expected: 0, comparison: '==', promotion: Confirm effective pinned SDK configuration and transport regression coverage; snapshot alone is not dispatch proof.}
+  - {metric: openai_retries_disabled, section: CONFIGURATION, source: policy, path: lower_layer_retry_policy.openai_client_max_retries, expected: 0, comparison: '==', promotion: Confirm effective owned-client configuration and no SDK override; retain transport dispatch evidence.}
+  - {metric: request_deadline_ms, section: CONFIGURATION, source: policy, path: request_deadline_ms, expected: 20000, comparison: '==', promotion: Compare effective ingress budget policy without resetting queued request budgets.}
+  - {metric: router_allowance_ms, section: CONFIGURATION, source: policy, path: router_allowance_ms, expected: 13000, comparison: '==', promotion: Confirm effective router stage cap under the same request budget.}
+  - {metric: recovery_reserve_ms, section: CONFIGURATION, source: policy, path: recovery_reserve_ms, expected: 3000, comparison: '==', promotion: Preserve bounded recovery admission and downstream reserve semantics.}
+  - {metric: synthesis_allowance_ms, section: CONFIGURATION, source: policy, path: synthesis_allowance_ms, expected: 6000, comparison: '==', promotion: Confirm effective synthesis stage cap without changing the request deadline.}
+  - {metric: max_workers, section: CONCURRENCY / ISOLATION, source: concurrency, expected: 5, comparison: '<=', promotion: Explicit deployment activation and configured capacity must be captured; above five requires new qualification.}
+  - {metric: queue_capacity, section: CONCURRENCY / ISOLATION, source: concurrency, expected: 5, comparison: '<=', promotion: Retain configured queue capacity and ingress-deadline semantics; above five requires new qualification.}

@@ -10,6 +10,7 @@ from agents.usage import Usage
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from src.agent.domain_entities import ExtractedEntities, extract_entities
+from src.agent.model_execution import run_model
 from src.agentguard.tool_policy import (
     CAPABILITIES, Capability, CapabilityIntent, ControlSignal, EntityScope, NonemptyString,
 )
@@ -147,12 +148,17 @@ class SemanticCapabilityRouter:
         self._run = run
 
     def route(self, user_message: str) -> RoutingResult:
+        from src.agent import telemetry
+        from src.agent.request_execution import admit
         entities = extract_entities(user_message)
         routing_input = json.dumps({
             "user_text": user_message, "extracted_entities": {"order_ids": list(entities.order_ids)},
         }, ensure_ascii=False, separators=(",", ":"))
+        admit("primary_router")
         try:
-            result = (self._run or Runner.run_sync)(self.agent, routing_input, max_turns=1)
+            telemetry.model_call(self.agent, default_resolution=self._run is None)
+            result = run_model(self.agent, routing_input, component="primary_router", run=self._run, max_turns=1)
+            telemetry.model_result(result)
             output = result.final_output
             if isinstance(output, CapabilityPlanOutput):
                 output = output.expand()

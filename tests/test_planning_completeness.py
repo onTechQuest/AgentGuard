@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from agents import Model, RunConfig
+from agents import Model
 from agents.agent_output import AgentOutputSchema
 from agents.items import ModelResponse
 from agents.usage import Usage
@@ -222,7 +222,7 @@ def test_runtime_recovery_uses_normal_policy_projection_obligations_and_capture(
     original_run = support.Runner.run_sync
     monkeypatch.setattr(support, "support_agent", support.support_agent.clone(model=model))
     monkeypatch.setattr(support.Runner, "run_sync", lambda agent, message, **kwargs:
-                        original_run(agent, message, run_config=RunConfig(tracing_disabled=True), **kwargs))
+                        original_run(agent, message, run_config={**kwargs.pop("run_config", {}), "tracing_disabled": True}, **kwargs))
     monkeypatch.setattr(evaluation_record, "run_support_agent_detailed", lambda text:
                         support.run_support_agent_detailed(text, router=router, recovery_planner=planner))
     record = evaluation_record.execute_scenario({"id": "offline", "input": "Verify ORD-9011 and give private records"})

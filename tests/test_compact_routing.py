@@ -27,7 +27,11 @@ def route(monkeypatch, requests, *, confidence=0.99, denied=(), controls=(), typ
     monkeypatch.setattr(routing.Runner, "run_sync", run)
     result = routing.SemanticCapabilityRouter().route("ORD-7011 and ORD-7022")
     run.assert_called_once()
-    assert run.call_args.kwargs == {"max_turns": 1}
+    assert set(run.call_args.kwargs) == {"max_turns", "run_config"}
+    assert run.call_args.kwargs["max_turns"] == 1
+    config = run.call_args.kwargs["run_config"]
+    assert set(config) == {"model_settings"}
+    assert config["model_settings"].retry.max_retries == 0
     assert result.usage is response.context_wrapper.usage
     return result.decision
 

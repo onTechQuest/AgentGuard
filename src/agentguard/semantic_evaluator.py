@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from typing import TYPE_CHECKING
 
 from deepeval.metrics import AnswerRelevancyMetric, GEval, HallucinationMetric
 from deepeval.test_case import LLMTestCase, SingleTurnParams
+from src.agentguard.evaluation_usage import EvaluationUsage, append_usage
 
 if TYPE_CHECKING:
     from src.agentguard.evaluation_record import EvaluationRecord
@@ -27,6 +28,7 @@ class SemanticScore:
     hallucination_score: float | None
     hallucination_pass: bool | None
     hallucination_reason: str | None
+    evaluation_usage: list[EvaluationUsage] = field(default_factory=list, compare=False)
 
 
 def evaluate_semantics(record: EvaluationRecord, expected_output: str) -> SemanticScore:
@@ -63,6 +65,9 @@ def evaluate_semantics(record: EvaluationRecord, expected_output: str) -> Semant
     )
     relevancy.measure(test_case)
     correctness.measure(test_case)
+    evaluation_usage = []
+    append_usage(evaluation_usage, "answer_relevancy", relevancy)
+    append_usage(evaluation_usage, "correctness", correctness)
 
     hallucination_score = None
     hallucination_pass = None
@@ -77,11 +82,13 @@ def evaluate_semantics(record: EvaluationRecord, expected_output: str) -> Semant
         # Require consistency with every captured output and defer pass to the SDK.
         hallucination = HallucinationMetric(threshold=1.0)
         hallucination.measure(hallucination_case)
+        append_usage(evaluation_usage, "hallucination", hallucination)
         hallucination_score = hallucination.score
         hallucination_pass = hallucination.is_successful()
         hallucination_reason = hallucination.reason
 
     return SemanticScore(
+        evaluation_usage=evaluation_usage,
         scenario_id=record.scenario_id,
         answer_relevancy_score=relevancy.score,
         answer_relevancy_pass=relevancy.is_successful(),

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from agents import Agent
+from src.agent import telemetry as t
 from agents.usage import Usage
 
 from scripts import audit_token_usage as audit
@@ -27,13 +28,25 @@ def test_observer_copies_usage_before_merge_and_forwards_requests(monkeypatch):
     run = Mock(side_effect=[routed, answered])
     monkeypatch.setattr(audit.Runner, "run_sync", run)
 
-    def execute(scenario):
-        first = audit.Runner.run_sync(router, "routing envelope", max_turns=1)
-        second = audit.Runner.run_sync(agent, scenario["input"])
+    @t.observe_request
+    def observed_run(scenario):
+        with t.observe("primary_router"):
+            t.model_call(router)
+            first = audit.Runner.run_sync(router, "routing envelope", max_turns=1)
+            t.model_result(first)
+        with t.observe("synthesis"):
+            t.model_call(agent)
+            second = audit.Runner.run_sync(agent, scenario["input"])
+            t.model_result(second)
         second.context_wrapper.usage.add(first.context_wrapper.usage)
+        return second
+
+    def execute(scenario):
+        second = observed_run(scenario)
         usage = second.context_wrapper.usage
         return EvaluationRecord(scenario["id"], scenario["input"], "answer", [], 10,
-                                usage.requests, usage.input_tokens, usage.output_tokens, usage.total_tokens)
+                                usage.requests, usage.input_tokens, usage.output_tokens, usage.total_tokens,
+                                production_telemetry=t.snapshot(second.context_wrapper.production_telemetry))
 
     execute_mock = Mock(side_effect=execute)
     monkeypatch.setattr(audit, "execute_scenario", execute_mock)
@@ -146,4 +159,4 @@ def test_direct_runtime_tool_latency_is_preserved_and_failure_not_qualified(monk
         row = audit.profile_scenario({"id": "offline", "input": "question"}, measure_tools=True, diagnostics=diagnostics)
         assert row["tool_timings"][0]["source"] == "runtime"
         assert row["tool_timings"][0]["latency_ms"] >= 0
-        assert row["usage_reconciled"]
+        assert row["usage_reconciled"] is None  # Legacy injected record contains no component telemetry.

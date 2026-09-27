@@ -1,11 +1,10 @@
 """Diagnostic only: profile functional smoke production runs without eval judges.
 
-Observes the existing Runner entry point without altering arguments, models,
-prompts, tools, retries, or the execute_scenario path. Output is gitignored.
+Consumes request-local production telemetry without replacing runtime callables.
+Models, prompts, tools, retries and execution remain unchanged. Output is gitignored.
 """
 
 import argparse
-from contextlib import ExitStack
 from dataclasses import asdict
 from datetime import datetime, timezone
 from importlib.metadata import version
@@ -14,7 +13,6 @@ from pathlib import Path
 from statistics import fmean
 import sys
 import time
-from unittest.mock import patch
 from pydantic import TypeAdapter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +24,7 @@ from agents.agent_output import AgentOutputSchema
 from agents.models.default_models import get_default_model
 from src.agentguard.datasets import load_dataset
 from src.agentguard.evaluation_record import execute_scenario
+from src.agent.telemetry import snapshot
 
 USAGE_FIELDS = ("requests", "input_tokens", "output_tokens", "total_tokens")
 
@@ -65,89 +64,79 @@ def component_snapshot(agent, result, latency_ms):
     }
 
 
-def profile_scenario(scenario, *, measure_tools=False, diagnostics=None):
+def telemetry_components(observation):
+    """Retain diagnostic field names while consuming the shared observations."""
     components = []
-    tool_timings = []
+    names = {"primary_router": "router", "recovery_planner": "planning_recovery", "synthesis": "agent"}
+    for span in (observation or {}).get("component_spans", []):
+        if span["component"] not in names:
+            continue
+        requests, responses = span["sdk_visible_requests"], span["model_responses"]
+        components.append({
+            "component": names[span["component"]], "status": span["status"],
+            "run_invocations": span["logical_model_calls"],
+            "model": span["resolved_model"] or span["configured_model"],
+            "latency_ms": span["duration_ms"], "requests": requests,
+            **{key: span[key] for key in ("input_tokens", "output_tokens", "total_tokens")},
+            "model_responses": responses,
+            "runner_visible_failed_attempts": max(0, requests - responses)
+            if requests is not None and responses is not None else None,
+            "response_usage": span["response_usage"], "context_characters": span["context_characters"],
+            "error_type": span["sanitized_exception_type"], "failure_category": span["failure_category"],
+        })
+    return components
+
+
+def profile_scenario(scenario, *, measure_tools=False, diagnostics=None):
+    components, tool_timings = [], []
     if diagnostics is not None:
         diagnostics.update(components=components, tool_timings=tool_timings)
-    original_run = Runner.run_sync
-
-    def timed_tool(tool):
-        original_invoke = tool.on_invoke_tool
-
-        async def invoke(*args, **kwargs):
-            started = time.perf_counter()
-            event = {"tool": tool.name, "status": "completed"}
-            try:
-                return await original_invoke(*args, **kwargs)
-            except BaseException as error:
-                event.update(status="failed", error_type=type(error).__name__)
-                raise
-            finally:
-                event["latency_ms"] = (time.perf_counter() - started) * 1000
-                tool_timings.append(event)
-
-        return invoke
-
-    def observe(agent, *args, **kwargs):
-        with ExitStack() as stack:
-            if measure_tools:
-                for tool in agent.tools:
-                    stack.enter_context(patch.object(tool, "on_invoke_tool", timed_tool(tool)))
-            started = time.perf_counter()
-            try:
-                result = original_run(agent, *args, **kwargs)
-            except BaseException as error:
-                components.append({"component": agent.name, "status": "failed",
-                                   "latency_ms": (time.perf_counter() - started) * 1000,
-                                   "error_type": type(error).__name__})
-                raise
-            elapsed = (time.perf_counter() - started) * 1000
-        components.append(component_snapshot(agent, result, elapsed))
-        return result
-
-    # Single-threaded diagnostic scope only; requests are forwarded unchanged.
-    with patch.object(Runner, "run_sync", side_effect=observe):
+    try:
         record = execute_scenario(scenario)
+    except BaseException as error:
+        observation = snapshot(getattr(error, "production_telemetry", None))
+        components.extend(telemetry_components(observation))
+        if diagnostics is not None:
+            diagnostics["production_telemetry"] = observation
+            if measure_tools:
+                tool_timings.extend({"tool": span["tool"], "status": span["status"],
+                                     "latency_ms": span["duration_ms"], "source": "runtime",
+                                     "error_type": span["sanitized_exception_type"]}
+                                    for span in (observation or {}).get("component_spans", [])
+                                    if span["component"] == "tool")
+        raise
+    observation = record.production_telemetry
+    components.extend(telemetry_components(observation))
+    if diagnostics is not None:
+        diagnostics["production_telemetry"] = observation
     if measure_tools and record.execution is not None:
-        # Mandatory reads now execute before the answer Runner. Keep their
-        # measured runtime latency alongside any legacy SDK tool timings.
-        tool_timings[:0] = [
+        tool_timings.extend(
             {"tool": item["operation"]["tool"], "status": item["status"],
-             "latency_ms": item["latency_ms"], "source": "runtime",
-             "error_type": item["error_type"]}
-            for item in record.execution["operations"] if item["latency_ms"] is not None
-        ]
+             "latency_ms": item["latency_ms"], "source": "runtime", "error_type": item["error_type"]}
+            for item in record.execution["operations"] if item["latency_ms"] is not None)
     if record.execution_error is not None:
         if diagnostics is not None:
             diagnostics["evaluation_record"] = asdict(record)
-        # Qualification must not count a captured execution failure as a
-        # successful low-latency observation (for example, no answer model ran).
-        raise RuntimeError("Production execution failed")
-    totals = {
-        name: sum(component[name] for component in components)
-        if all(component[name] is not None for component in components) else None
-        for name in USAGE_FIELDS
-    }
+        error = RuntimeError("Production execution failed")
+        error.production_telemetry_snapshot = observation
+        raise error
     record_usage = {"requests": record.request_count, "input_tokens": record.input_tokens,
                     "output_tokens": record.output_tokens, "total_tokens": record.total_tokens}
-    if totals != record_usage:
-        raise ValueError("Observed component usage does not reconcile with EvaluationRecord")
+    reconciled = None
+    if components and all(component[name] is not None for component in components for name in USAGE_FIELDS):
+        totals = {name: sum(component[name] for component in components) for name in USAGE_FIELDS}
+        reconciled = totals == record_usage
+        if not reconciled:
+            raise ValueError("Observed component usage does not reconcile with EvaluationRecord")
     return {
-        "scenario_id": record.scenario_id,
-        "latency_ms": record.latency_ms,
-        "production_usage": record_usage,
-        "components": components,
+        "scenario_id": record.scenario_id, "latency_ms": record.latency_ms,
+        "production_usage": record_usage, "components": components,
+        "production_telemetry": observation,
         "tool_timings": tool_timings if measure_tools else None,
-        "tool_calls": record.tool_calls,
-        # Preserve the captured execution for offline checks without another run.
-        "evaluation_record": asdict(record),
+        "tool_calls": record.tool_calls, "evaluation_record": asdict(record),
         "tool_output_characters": len(json.dumps(record.tool_outputs, ensure_ascii=False)),
-        "application_reruns": 0,
-        "http_retry_count": None,
-        "retry_tokens": None,
-        "usage_reconciled": True,
-        "evaluation_usage": {"model_calls": 0, "total_tokens": 0},
+        "application_reruns": 0, "http_retry_count": None, "retry_tokens": None,
+        "usage_reconciled": reconciled, "evaluation_usage": {"model_calls": 0, "total_tokens": 0},
     }
 
 
@@ -199,6 +188,8 @@ def main(argv=None):
         except Exception as error:
             # Never serialize exception text: provider errors may contain credentials.
             report["error"] = {"scenario_id": scenario["id"], "type": type(error).__name__}
+            report["failure_telemetry"] = (snapshot(getattr(error, "production_telemetry", None))
+                                           or getattr(error, "production_telemetry_snapshot", None))
             save_report(args.output, report)
             print(f"Stopped: {type(error).__name__}. No scenario retried.", flush=True)
             return 1

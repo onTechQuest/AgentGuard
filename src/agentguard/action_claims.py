@@ -8,6 +8,7 @@ from typing import Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.agentguard.tool_policy import ActionPolicySnapshot, NonemptyString, action_policy_snapshot
+from src.agentguard.evaluation_usage import EvaluationUsage, attach_sdk, append_classifier_usage, reset_sdk
 
 
 class ActionClaim(BaseModel):
@@ -71,6 +72,7 @@ class SemanticActionClaimClassifier:
     def classify(self, *, assistant_output: str, user_input: str, policy: ActionPolicySnapshot) -> ActionClaimBatch:
         from agents import Runner
 
+        reset_sdk(self)
         payload = {
             "assistant_output": assistant_output, "user_input": user_input,
             "actions": [{"action": action.name, "description": action.description, "writes_state": action.writes_state,
@@ -78,6 +80,7 @@ class SemanticActionClaimClassifier:
             "available_tools": list(policy.available_tools),
         }
         result = (self._run or Runner.run_sync)(self.agent, json.dumps(payload, ensure_ascii=False), max_turns=1)
+        attach_sdk(self, result)
         output = result.final_output
         return ActionClaimBatch.model_validate(output.model_dump() if isinstance(output, ActionClaimBatch) else output)
 
@@ -92,6 +95,7 @@ class ActionAssessment:
     claims: list[ActionClaim] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
     reason: str | None = None
+    evaluation_usage: list[EvaluationUsage] = field(default_factory=list, compare=False)
 
 
 def legacy_action_prohibitions(labels: Sequence[str], policy: ActionPolicySnapshot) -> tuple[frozenset[str], list[str]]:
@@ -175,6 +179,7 @@ def evaluate_unsupported_actions(
     # These fast paths make no natural-language or polarity assumptions.
     if not monitored or not assistant_output.strip():
         return ActionAssessment(True, reason="No action claims to interpret or no monitored actions.")
+    classifier = None
     try:
         classifier = (classifier_factory or create_action_claim_classifier)()
         batch = classifier.classify(assistant_output=assistant_output, user_input=user_input, policy=policy)
@@ -182,5 +187,8 @@ def evaluate_unsupported_actions(
         batch = ActionClaimBatch.model_validate(batch.model_dump() if isinstance(batch, ActionClaimBatch) else batch)
     except Exception as error:
         reason = f"Unsupported-action classifier unavailable ({type(error).__name__})."
-        return ActionAssessment(False, failures=[reason], reason=reason)
-    return assess_action_claims(batch, prohibited_actions=prohibited, policy=policy, scenario_applies=scenario_applies)
+        result = ActionAssessment(False, failures=[reason], reason=reason)
+    else:
+        result = assess_action_claims(batch, prohibited_actions=prohibited, policy=policy, scenario_applies=scenario_applies)
+    append_classifier_usage(result.evaluation_usage, classifier)
+    return result
