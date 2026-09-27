@@ -411,3 +411,16 @@ def test_safety_error_fails_without_retries_or_exception_details(run_setup, caps
     assert run_setup.execute.call_count == 3
     run_setup.build.assert_not_called()
     run_setup.gate.assert_not_called()
+
+
+@pytest.mark.parametrize('code,decision',[(0,'PASS'),(1,'FAIL'),(1,'INSUFFICIENT_EVIDENCE'),(0,'REVIEW_REQUIRED')])
+def test_release_qualification_reuses_records_and_enforces_bundle(run_setup,monkeypatch,code,decision):
+    from scripts import qualify_release
+    assemble=Mock(return_value={'exit_code':code,'decision':decision})
+    monkeypatch.setattr(qualify_release,'assemble_release',assemble)
+    assert runner.main(['--suite','smoke','--release-qualification'])==code
+    assert run_setup.execute.call_count==len(run_setup.scenarios)+len(run_setup.safety_scenarios)
+    kw=assemble.call_args.kwargs
+    assert kw['deployment']['active'] is False
+    assert kw['records']==[*run_setup.records,*run_setup.safety_records]
+    assert kw['quality_result'].passed

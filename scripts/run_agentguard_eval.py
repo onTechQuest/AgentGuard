@@ -47,12 +47,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--repetitions", type=int, help="Qualification repetitions (performance default 5; reliability uses configuration)")
     parser.add_argument("--report", type=Path, help="Qualification JSON report path")
+    parser.add_argument("--release-qualification", action="store_true", help="Enforce the 16 structural gates using fresh offline qualification evidence")
+    parser.add_argument("--structural-evidence", type=Path, help="Current-revision offline production transport evidence")
+    parser.add_argument("--release-report", type=Path, help="New release bundle output path (never overwritten)")
     parser.add_argument("--qualification-config", type=Path, help="Reliability only: explicit candidate configuration JSON")
     parser.add_argument("--execution-candidate", help="Reliability only: select the named execution candidate")
     parser.add_argument("--execute-retries", action="store_true", help="Reliability only: explicitly enable the selected retry candidate")
     parser.add_argument("--enforce-candidate-budget", action="store_true",
                         help="Reliability only: explicitly enforce experimental request/stage budgets; no retries")
     args = parser.parse_args(argv)
+    if args.release_qualification and args.suite not in SUITES:
+        parser.error("Release qualification requires smoke/full correctness mode")
+    if not args.release_qualification and (args.structural_evidence or args.release_report):
+        parser.error("Structural evidence/output require --release-qualification")
     if args.suite not in {"performance", "reliability"} and (args.repetitions is not None or args.report is not None):
         parser.error("--repetitions and --report require a qualification suite")
     if args.suite == "performance" and args.repetitions is not None and args.repetitions < 5:
@@ -268,6 +275,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{GATE_LABELS[check['metric']]} {status}")
     for failure in gate.failures:
         print(f"  - {failure}")
+    if args.release_qualification:
+        from scripts.qualify_release import assemble_release
+        report = assemble_release(PROJECT_ROOT,
+            structural_path=args.structural_evidence or PROJECT_ROOT/'reports/release_13e4/transport.json',
+            quality_result=gate, deployment={'active': False, 'source': 'sequential smoke/full runner'},
+            records=[*(record for record, _ in records_and_scores), *safety_records],
+            slo_path=PROJECT_ROOT/'reports/slo_13e2/scorecard_final.json',
+            cost_path=PROJECT_ROOT/'reports/cost_13e1/baseline.json',output=args.release_report)
+        print(f"FINAL DECISION: {report['decision']}")
+        return report['exit_code']
     print(f"\nFINAL DECISION: {'PASS' if gate.passed else 'FAIL'}")
     return 0 if gate.passed else 1
 

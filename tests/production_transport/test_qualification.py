@@ -46,8 +46,11 @@ def experiment(tmp_path_factory):
     yield run
     target = os.environ.get("AGENTGUARD_PRODUCTION_TRANSPORT_REPORT")
     if target:
+        from src.agentguard.structural_release import evidence_identity
+        Path(target).parent.mkdir(parents=True, exist_ok=True)
         with Path(target).open("x", encoding="utf-8") as stream:
-            json.dump(OBSERVATIONS, stream, indent=2)
+            json.dump({**evidence_identity(Path(__file__).resolve().parents[2]),
+                       "kind": "offline_production_transport", "experiments": OBSERVATIONS}, stream, indent=2)
 
 
 def clean(report):
@@ -87,6 +90,8 @@ def test_production_path_worker_ownership_and_isolation(experiment, workers):
         attempts = [a for span in row["telemetry"]["component_spans"] for a in span["attempts"]]
         assert len(attempts) == (3 if row["kind"] == "recovery" else 2)
         assert len(row["dispatch_owners"]) == len(attempts)
+        assert row["effective_sdk_retries"] == [0] * len(attempts)
+        assert row["effective_openai_retries"] and set(row["effective_openai_retries"]) == {0}
         assert all(owner == row["owner"] for owner in row["dispatch_owners"])
         assert all(a["attempt_number"] == 1 and not a["retry_performed"] for a in attempts)
         call_ids.extend(a["logical_call_id"] for a in attempts)

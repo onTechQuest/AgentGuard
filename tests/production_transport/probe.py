@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 from agents import Agent, Runner, set_trace_processors, set_tracing_disabled
 from agents.tracing import TracingProcessor
 from agents.models.openai_provider import OpenAIProvider
+from agents.models.openai_responses import OpenAIResponsesModel
 from tests.transport_ownership.probe import Audit, Endpoint, Handler, KEY, network_guard, response, error_snapshot
 from src.agent import model_execution, support_agent, telemetry, request_execution, retry_policy
 from src.agent.request_budget import RequestBudget
@@ -192,17 +193,28 @@ def production(workers, faults, tracing):
     rows, lifecycles, errors, loop_errors = [], [], [], []
     original_config = model_execution.model_run_config
     original_tool = support_agent.orders.get_order_status
+    original_get_client = OpenAIResponsesModel._get_client
+
+    def observed_client(model):
+        client = original_get_client(model)
+        item = CURRENT.get()
+        if item is not None:
+            item.setdefault("effective_openai_retries", []).append(client.max_retries)
+        return client
 
     def config():
         item = CURRENT.get()
         item["phase"] = telemetry._span.get().component
-        return {**original_config(), "model_provider": item["provider"], "tracing_disabled": not tracing}
+        resolved = original_config()
+        item.setdefault("effective_sdk_retries", []).append(resolved["model_settings"].retry.max_retries)
+        return {**resolved, "model_provider": item["provider"], "tracing_disabled": not tracing}
 
     def observed_tool(order_id):
         CURRENT.get()["tools"].append(order_id)
         return original_tool(order_id)
 
     model_execution.model_run_config = config
+    OpenAIResponsesModel._get_client = observed_client
     support_agent.orders.get_order_status = observed_tool
     kinds = (["ok", "429", "ok", "500", "ok", "cancel", "ok", "synthesis_failure", "ok", "late", "ok", "recovery", "ok"]
              if faults else ["ok", "recovery", "ok"])
@@ -241,6 +253,8 @@ def production(workers, faults, tracing):
                     item["cancel_drained"].set()
                     CURRENT.reset(token)
                 row.update(telemetry=telemetry.snapshot(observed), tools=item["tools"], context_clean=context_clean(),
+                           effective_sdk_retries=item.get("effective_sdk_retries", []),
+                           effective_openai_retries=item.get("effective_openai_retries", []),
                            dispatch_owners=item.get("dispatch_owners", []),
                            client_open=not client.is_closed(), loop_reused=asyncio.get_event_loop() is loop,
                            deadline_after=budget.deadline_monotonic, pending_tasks=len(asyncio.all_tasks(loop)))
@@ -261,6 +275,7 @@ def production(workers, faults, tracing):
             thread.join(25)
     finally:
         model_execution.model_run_config = original_config
+        OpenAIResponsesModel._get_client = original_get_client
         support_agent.orders.get_order_status = original_tool
         alive = endpoint.finish()
     return {"rows": rows, "lifecycle": lifecycles, "errors": errors, "loop_errors": loop_errors,

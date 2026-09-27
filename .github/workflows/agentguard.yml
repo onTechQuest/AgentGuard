@@ -30,9 +30,19 @@ jobs:
         run: python -m pip install -r requirements.txt
 
       - name: Run offline tests
+        env:
+          AGENTGUARD_PRODUCTION_TRANSPORT_REPORT: reports/release_13e4/transport.json
         run: python -m pytest tests -q
 
       - name: Run AgentGuard live evaluation
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python scripts/run_agentguard_eval.py --suite smoke
+        run: python scripts/run_agentguard_eval.py --suite smoke --release-qualification
+
+      - name: Retain release qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentguard-release-qualification
+          path: reports/release_13e4/
+          if-no-files-found: warn
