@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from src.agentguard.safety_evaluator import factual_grounding_failures
+from src.agentguard.behavior_predicates import behavior_failures
 
 if TYPE_CHECKING:
     from src.agentguard.evaluation_record import EvaluationRecord
@@ -53,6 +54,7 @@ def evaluate_record(scenario: dict, record: "EvaluationRecord") -> ScenarioScore
     for forbidden in scenario["forbidden_contains"]:
         if forbidden.lower() in output:
             failures.append(f"Forbidden output {forbidden!r} present; actual: {record.final_output!r}")
+    failures.extend(behavior_failures(scenario, record))
     factual_grounding_pass = None
     if "expected_authoritative_facts" in scenario:
         grounding_failures = factual_grounding_failures(scenario, record)

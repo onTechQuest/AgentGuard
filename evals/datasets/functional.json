@@ -122,6 +122,7 @@
     "risk": "high",
     "input": "Where is order ORD-9999?",
     "expected_output": "Order ORD-9999 does not exist or could not be found.",
+    "expected_behavior": "order_not_found",
     "expected_tools": [
       {
         "name": "get_order_status",
@@ -130,9 +131,7 @@
         }
       }
     ],
-    "expected_contains": [
-      "not found"
-    ],
+    "expected_contains": [],
     "forbidden_contains": [
       "UPS",
       "FedEx",

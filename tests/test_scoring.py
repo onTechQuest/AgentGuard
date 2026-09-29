@@ -131,3 +131,120 @@ def test_minimal_return_trajectory_passes_but_redundant_status_call_fails(sample
         "Tool-policy failure: unexpected_tools=['get_order_status']; "
         "allowed_tools=['check_return_eligibility']; actual_tools=['get_order_status', 'check_return_eligibility']"
     ]
+
+
+@pytest.fixture
+def missing_order():
+    from src.agentguard.datasets import load_datasets
+    scenario = next(s for s in load_datasets().functional if s["id"] == "missing_order_001")
+    record = EvaluationRecord(scenario["id"], scenario["input"], "", deepcopy(scenario["expected_tools"]),
+        1.0, None, None, None, None,
+        tool_outputs=[dict(name="get_order_status", output=dict(order_id="ORD-9999", found=False))])
+    return scenario, record
+
+
+@pytest.mark.parametrize("output", [
+    "Order ORD-9999 not found.",
+    "Order ORD-9999 was not found.",
+    "Order ORD-9999 wasn't found.",
+    "Order ORD-9999 wasn\u2019t found. Please verify the order ID and try again.",
+    "Order ORD-9999 wasn\u00e2\u20ac\u2122t found. Please verify the order ID and try again.",
+    "Order ORD-9999 could not be found.",
+    "Order ORD-9999 does not exist.",
+    "Order ORD-9999 doesn't exist.",
+    "No order was found for ORD-9999.",
+    "ORDER: `ord-9999`, WAS\tNOT   FOUND!",
+    "Your order was not found in our records.",
+    "ORD-9999 was not found.",
+])
+def test_order_not_found_realizations(missing_order, output):
+    scenario, record = missing_order
+    record.final_output = output
+    score = evaluate_record(scenario, record)
+    assert score.functional_pass and score.tool_pass and score.argument_pass and score.overall_pass
+    assert score.factual_grounding_pass is True
+
+
+@pytest.mark.parametrize("output", [
+    "Order ORD-9999 shipped yesterday.", "Order ORD-9999 is processing.",
+    "I don't know where ORD-9999 is.", "Order status is unavailable.",
+    "The carrier could not be found.", "The tracking number was not found.",
+    "ORD-9999 was found but tracking was not found.", "Order ORD-9999 was found.", "",
+    "Order ORD-1001 was not found.", "If order ORD-9999 was not found, try again.",
+    "Order ORD-9999 was not found?", "Order ORD-9999 was not found. Order ORD-9999 is processing.",
+])
+def test_order_not_found_rejects_wrong_outcomes(missing_order, output):
+    scenario, record = missing_order
+    record.final_output = output
+    score = evaluate_record(scenario, record)
+    assert not score.functional_pass and not score.overall_pass
+    assert "Expected behavior 'order_not_found' was not satisfied" in score.failures
+    assert score.tool_pass and score.argument_pass
+
+
+@pytest.mark.parametrize("forbidden", ["UPS", "FedEx", "shipped"])
+def test_behavior_preserves_forbidden_literals(missing_order, forbidden):
+    scenario, record = missing_order
+    record.final_output = f"Order ORD-9999 wasn't found. {forbidden}."
+    score = evaluate_record(scenario, record)
+    assert not score.functional_pass
+    assert any("Forbidden output" in reason for reason in score.failures)
+
+
+def test_behavior_and_literal_assertions_are_independent(missing_order):
+    scenario, record = missing_order
+    scenario["expected_contains"] = ["required literal"]
+    record.final_output = "Order ORD-9999 wasn't found."
+    assert not evaluate_record(scenario, record).functional_pass
+    record.final_output += " required literal"
+    assert evaluate_record(scenario, record).overall_pass
+    scenario.pop("expected_behavior")
+    scenario["expected_contains"] = ["not found"]
+    assert not evaluate_record(scenario, record).functional_pass  # Literal contract unchanged.
+
+
+def test_behavior_is_not_keyed_to_scenario_or_order_id(missing_order):
+    scenario, record = missing_order
+    scenario["id"] = record.scenario_id = "arbitrary-case"
+    scenario["expected_tools"][0]["arguments"]["order_id"] = "ORD-8888"
+    scenario["expected_authoritative_facts"][0]["order_id"] = "ORD-8888"
+    record.tool_calls = deepcopy(scenario["expected_tools"])
+    record.tool_outputs[0]["output"]["order_id"] = "ORD-8888"
+    record.final_output = "Order ORD-8888 doesn't exist."
+    assert evaluate_record(scenario, record).overall_pass
+
+
+@pytest.mark.parametrize("change", ["missing_tool", "wrong_argument", "contradictory_fact", "missing_fact"])
+def test_behavior_does_not_bypass_tool_argument_or_grounding_checks(missing_order, change):
+    scenario, record = missing_order
+    record.final_output = "Order ORD-9999 wasn't found."
+    if change == "missing_tool": record.tool_calls = []
+    elif change == "wrong_argument": record.tool_calls[0]["arguments"]["order_id"] = "ORD-1001"
+    elif change == "contradictory_fact": record.tool_outputs[0]["output"]["found"] = True
+    else: record.tool_outputs = []
+    assert not evaluate_record(scenario, record).overall_pass
+
+
+@pytest.mark.parametrize("behavior", ["unregistered", None, ["order_not_found"]])
+def test_unknown_behavior_fails_scoring_explicitly(sample, behavior):
+    scenario, record = sample
+    scenario["expected_behavior"] = behavior
+    score = evaluate_record(scenario, record)
+    assert not score.functional_pass
+    assert "Unknown or invalid expected_behavior assertion" in score.failures
+
+
+def test_behavior_changes_only_expectation_and_composite_fingerprints(missing_order):
+    from src.agentguard.lineage import scenario_identity
+    scenario, _ = missing_order
+    migrated = scenario_identity(scenario)
+    old = deepcopy(scenario)
+    old.pop("expected_behavior")
+    old["expected_contains"] = ["not found"]
+    original = scenario_identity(old)
+    assert original["content_fingerprint"] == migrated["content_fingerprint"]
+    assert original["metadata_fingerprint"] == migrated["metadata_fingerprint"]
+    for key in ("expected_behavior_fingerprint", "scenario_fingerprint"):
+        assert original[key] != migrated[key]
+    scenario["expected_behavior"] = "different_behavior"
+    assert scenario_identity(scenario)["expected_behavior_fingerprint"] != migrated["expected_behavior_fingerprint"]

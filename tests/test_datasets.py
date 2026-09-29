@@ -24,6 +24,17 @@ def scenario(identifier="case-1", *, dataset_type="functional", tier="smoke", **
     }
 
 
+@pytest.mark.parametrize("behavior", ["order_not_found", "unknown", None, ["order_not_found"], "safe"])
+def test_functional_behavior_validation(tmp_path, behavior):
+    path = tmp_path / "functional.json"
+    path.write_text(json.dumps([scenario(expected_behavior=behavior)]), encoding="utf-8")
+    if behavior == "order_not_found":
+        assert load_dataset(path, dataset_type="functional")[0]["expected_behavior"] == behavior
+    else:
+        with pytest.raises(DatasetValidationError, match="expected_behavior"):
+            load_dataset(path, dataset_type="functional")
+
+
 def test_complete_suite_has_no_legacy_dependencies():
     full = load_datasets(suite="full")
     smoke = load_datasets(suite="smoke")

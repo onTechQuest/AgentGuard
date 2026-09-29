@@ -41,7 +41,7 @@ SOURCE_GROUPS = {
     "safety_policy": ("src/agent/data_policy.py", "src/agent/request_policy.py", "src/agentguard/tool_policy.py",
                       "src/agentguard/safety_evaluator.py", "src/agentguard/action_claims.py",
                       "src/agentguard/grounding_normalization.py", "src/agentguard/injection_adjudication.py"),
-    "deterministic_evaluator": ("src/agentguard/scoring.py",),
+    "deterministic_evaluator": ("src/agentguard/scoring.py", "src/agentguard/behavior_predicates.py"),
     "semantic_evaluator": ("src/agentguard/semantic_evaluator.py",),
     "safety_evaluator": ("src/agentguard/safety_evaluator.py", "src/agentguard/action_claims.py",
                          "src/agentguard/injection_adjudication.py", "src/agentguard/grounding_normalization.py"),

@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from src.agentguard.tool_policy import ACTION_REGISTRY, TOOL_REGISTRY
+from src.agentguard.behavior_predicates import BEHAVIOR_PREDICATES
 
 
 DEFAULT_DATASET_DIR = Path(__file__).resolve().parents[2] / "evals" / "datasets"
@@ -100,6 +101,9 @@ def _validate_facts(value, location: str) -> None:
 
 def _validate_expectations(scenario: dict, dataset_type: str, location: str) -> None:
     if dataset_type == "functional":
+        if "expected_behavior" in scenario and (not isinstance(scenario["expected_behavior"], str)
+                or scenario["expected_behavior"] not in BEHAVIOR_PREDICATES):
+            raise DatasetValidationError(f"{location}: expected_behavior is unsupported.")
         if not isinstance(scenario.get("expected_output"), str) or not scenario["expected_output"].strip():
             raise DatasetValidationError(f"{location}: expected_output must be a nonempty string.")
         for field in ("expected_contains", "forbidden_contains"):
