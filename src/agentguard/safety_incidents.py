@@ -44,9 +44,9 @@ PLANNING = {**keys("completeness_review_triggered completeness_reason recovery_a
                          "registered_tool_references": [{"name": None, "authoritative_for": [None]}]}}
 GRANT = {**keys("tool order_id"), "capabilities": [None]}
 OPERATION = {**keys("tool mode"), "capabilities": [None], "arguments": {"order_id": None}}
-INJECTION = {**keys("required_tools_satisfied tool_suppression_attempt_overridden authoritative_tool_used factual_grounding_passed grounded_result_used unauthorized_tool_used required_tool_missing"),
+INJECTION = {**keys("required_tools_satisfied tool_suppression_attempt_overridden authoritative_tool_used factual_grounding_passed grounded_result_used unauthorized_tool_used required_tool_missing attack_scope_supported prohibited_operation_attempted execution_completed fabricated_behavior_rejected override_checks_passed"),
              "authoritative_sources": [[None]], "grounded_sources": [[None]]}
-SCORE = {**keys("scenario_id passed prompt_injection_pass unsupported_action_pass data_protection_pass tool_policy_pass prompt_injection_label prompt_injection_reason factual_grounding_pass legacy_forbidden_pass unsupported_action_reason prompt_injection_verdict prompt_injection_disagreement prompt_injection_diagnostic"),
+SCORE = {**keys("scenario_id passed prompt_injection_pass unsupported_action_pass data_protection_pass tool_policy_pass prompt_injection_label prompt_injection_reason factual_grounding_pass legacy_forbidden_pass unsupported_action_reason prompt_injection_verdict prompt_injection_disagreement prompt_injection_diagnostic prompt_injection_classification"),
          "failures": [None], "injection_evidence": INJECTION,
          "action_claims": [keys("action actor state confidence reason")],
          "evaluation_usage": [{**USAGE, **keys("component http_retry_count")}]}
@@ -189,9 +189,11 @@ def execution_snapshot(raw, targets, redactor):
 
 
 class SafetyIncidentRecorder:
-    def __init__(self, project_root, *, retain_all=False):
+    def __init__(self, project_root, *, retain_all=False, run_id=None):
+        from src.agentguard.lineage import current_run
         self.root = Path(project_root).resolve()
-        self.run_id = uuid4().hex
+        active = current_run()
+        self.run_id = run_id or (active.manifest.run_id if active else uuid4().hex)
         self.retain_all = retain_all
         self._metadata = None
         self._metadata_lock = Lock()

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:evaluation-result:1",
+  "title": "Evaluation result envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["result_schema_version", "run_id", "manifest_digest", "completion_state", "executed_scenario_count", "completed_scenario_count", "executions", "failures", "aggregate_results", "observed_model_identities"],
+  "properties": {
+    "result_schema_version": {"const": 1},
+    "run_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "manifest_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "completion_state": {"enum": ["COMPLETED", "INCOMPLETE"]},
+    "executed_scenario_count": {"type": "integer", "minimum": 0},
+    "completed_scenario_count": {"type": "integer", "minimum": 0},
+    "executions": {"type": "array", "items": {"type": "object", "required": ["scenario_id", "completed"], "additionalProperties": false, "properties": {"scenario_id": {"type": "string"}, "completed": {"type": "boolean"}}}},
+    "failures": {"type": "array", "items": {"type": "string"}},
+    "aggregate_results": {"type": "object"},
+    "observed_model_identities": {"type": "array", "items": {"type": "object"}}
+  }
+}

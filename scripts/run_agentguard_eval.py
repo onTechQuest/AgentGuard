@@ -18,6 +18,7 @@ from src.agentguard.scoring import evaluate_record
 from src.agentguard.semantic_evaluator import evaluate_semantics
 from src.agentguard.safety_evaluator import safety_evaluate_record
 from src.agentguard.safety_incidents import SafetyIncidentRecorder
+from src.agentguard.lineage import lineage_entry, start_run
 
 
 GATE_LABELS = {
@@ -94,6 +95,7 @@ def print_production_usage(label, usage, threshold):
         print(f"  {observation.scenario_id}: {observation.latency_ms:.0f} ms")
 
 
+@lineage_entry
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     print("AGENTGUARD EVALUATION", flush=True)
@@ -137,6 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("Check both datasets, functional expected_output fields, and quality gate YAML.\nFINAL DECISION: FAIL")
         return 1
 
+    lineage = start_run(PROJECT_ROOT, suite=args.suite, functional=scenarios, safety=safety_scenarios)
     records_and_scores = []
     semantic_scores = []
     for scenario in scenarios:
@@ -187,6 +190,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         records_and_scores, semantic_scores=semantic_scores, safety_scores=safety_scores, safety_records=safety_records,
     )
     gate = evaluate_quality_gate(scorecard, config, latency_mode="report_only")
+    from dataclasses import asdict
+    lineage.aggregate = {"quality_result": asdict(gate)}
+    lineage.evaluation_complete = True
 
     executed = [*scenarios, *safety_scenarios]
     print("\nCOVERAGE")
@@ -282,7 +288,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             quality_result=gate, deployment={'active': False, 'source': 'sequential smoke/full runner'},
             records=[*(record for record, _ in records_and_scores), *safety_records],
             slo_path=PROJECT_ROOT/'reports/slo_13e2/scorecard_final.json',
-            cost_path=PROJECT_ROOT/'reports/cost_13e1/baseline.json',output=args.release_report)
+            cost_path=PROJECT_ROOT/'reports/cost_13e1/baseline.json',output=args.release_report,
+            evaluation_lineage=lineage.reference)
         print(f"FINAL DECISION: {report['decision']}")
         return report['exit_code']
     print(f"\nFINAL DECISION: {'PASS' if gate.passed else 'FAIL'}")

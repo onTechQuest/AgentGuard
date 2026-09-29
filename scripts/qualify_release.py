@@ -9,15 +9,21 @@ from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
+from src.agentguard.lineage import lineage_entry, start_run
 from src.agentguard.quality_gate import load_quality_gate_config
 from src.agentguard.structural_release import (evidence_identity, load_release_spec, transport_evidence,
     configuration_observations, evaluate_bundle, observation, POLICY_PATHS, _lookup, add_record_violations)
 
 
+@lineage_entry
 def assemble_release(root, *, structural_path, quality_result=None, deployment=None,
-                     slo_path=None, cost_path=None, output=None, records=()):
+                     slo_path=None, cost_path=None, output=None, records=(), evaluation_lineage=None):
     root = Path(root)
     identity = evidence_identity(root)
+    lineage = start_run(root, suite="structural", execution_mode="offline_fixture",
+        hosting={"mode": "bounded" if (deployment or {}).get("active") else "sequential",
+                 "max_workers": (deployment or {}).get("max_workers", "UNKNOWN"),
+                 "queue_capacity": (deployment or {}).get("queue_capacity", "UNKNOWN")})
     sources = []
     def read(path):
         if path is None or not Path(path).exists():
@@ -65,6 +71,11 @@ def assemble_release(root, *, structural_path, quality_result=None, deployment=N
         current_request_supplemental_coverage=supplemental,
         quality_result=quality,
         gate_specification_sha256=hashlib.sha256(spec_path.read_bytes()).hexdigest())
+    report.update(lineage.reference, evaluation_lineage=evaluation_lineage,
+                  source_evaluation_run_ids=sorted({r.run_id for r in records if getattr(r, "run_id", None)}))
+    lineage.aggregate = {"decision": report["decision"], "evaluation_lineage": evaluation_lineage,
+                         "source_evaluation_run_ids": report["source_evaluation_run_ids"]}
+    lineage.evaluation_complete = True
     output = Path(output) if output else root/'reports/release_13e4'/f'qualification_{uuid4().hex}.json'
     output.parent.mkdir(parents=True,exist_ok=True)
     with output.open('x',encoding='utf-8') as stream:

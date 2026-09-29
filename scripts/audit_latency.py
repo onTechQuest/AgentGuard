@@ -19,6 +19,7 @@ from scripts.audit_token_usage import profile_scenario
 from src.agentguard.datasets import load_dataset
 from src.agentguard.quality_gate import load_quality_gate_config
 from src.agentguard.performance import distribution, qualify_performance
+from src.agentguard.lineage import lineage_entry, start_run
 
 
 def summarize(observations, threshold):
@@ -79,6 +80,7 @@ def save_report(path, report):
     temporary.replace(path)
 
 
+@lineage_entry
 def main(argv=None, *, project_root=None):
     root = Path(project_root) if project_root is not None else PROJECT_ROOT
     parser = argparse.ArgumentParser(description=__doc__)
@@ -96,7 +98,10 @@ def main(argv=None, *, project_root=None):
     if args.qualify and len(scenarios) * args.repetitions < 40:
         parser.error("Performance qualification requires at least 40 observations")
     config = load_quality_gate_config(root / "config/quality-gates.yaml")
+    lineage = start_run(root, suite="performance", functional=scenarios, repetitions=args.repetitions,
+                        evaluation_config={"qualify": args.qualify})
     report = {
+        **lineage.reference,
         "started_at": datetime.now(timezone.utc).isoformat(), "suite": "functional smoke",
         "sdk_versions": {name: version(name) for name in ("openai-agents", "openai")},
         "repetitions": args.repetitions, "observations_requested": len(scenarios) * args.repetitions,
@@ -116,12 +121,13 @@ def main(argv=None, *, project_root=None):
     save_report(args.output, report)
     for repetition in range(1, args.repetitions + 1):
         for scenario in scenarios:
-            row = {"scenario_id": scenario["id"], "repetition": repetition,
+            row = {**lineage.reference, "scenario_id": scenario["id"], "repetition": repetition,
                    "started_at": datetime.now(timezone.utc).isoformat(), "status": "running"}
             report["observations"].append(row)
             save_report(args.output, report)
             print(f"Pass {repetition}/{args.repetitions}: {scenario['id']}", flush=True)
             diagnostics = {}
+            lineage_count_before = len(lineage.executed)
             started = time.perf_counter()
             try:
                 row.update(profile_scenario(scenario, measure_tools=True, diagnostics=diagnostics))
@@ -131,6 +137,10 @@ def main(argv=None, *, project_root=None):
                 row.update(status="failed", error_type=type(error).__name__,
                            latency_ms=(time.perf_counter() - started) * 1000,
                            http_retry_count=None, retry_tokens=None)
+            # The real profiler uses execute_scenario, which already records the
+            # attempt. Injected offline profilers may supply measurements directly.
+            if len(lineage.executed) == lineage_count_before:
+                lineage.observe(scenario["id"], completed=row["status"] == "completed")
             save_report(args.output, report)
             print(f"  {row['status']}: {row['latency_ms']:.0f} ms", flush=True)
     report["complete"] = True
@@ -141,6 +151,8 @@ def main(argv=None, *, project_root=None):
                                             args.repetitions, report["latency_threshold_ms"])
         report["qualification"] = asdict(qualification)
     save_report(args.output, report)
+    lineage.aggregate = {"summary": report["summary"], "qualification": report.get("qualification")}
+    lineage.evaluation_complete = True
     if args.qualify:
         stats = report["summary"]["all_attempt_latency_ms"]
         print("\nPERFORMANCE QUALIFICATION")

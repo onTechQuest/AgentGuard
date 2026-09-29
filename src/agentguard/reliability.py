@@ -16,6 +16,7 @@ from src.agent.runtime_reliability import RuntimeReliabilityPolicy
 from src.agent.retry_policy import ModelRetryPolicy, classify_failure
 from src.agent.support_agent import run_support_agent_detailed
 from src.agentguard.performance import distribution
+from src.agentguard.lineage import lineage_entry, start_run
 from src.agentguard.reliability_policy import evidence_from_attempt, label, shadow_retry
 
 
@@ -325,6 +326,7 @@ def write_report(path, report):
     temporary.replace(path)
 
 
+@lineage_entry
 def qualify(config, datasets, *, output, project_root, execute_retries=False, enforce_candidate_budget=False,
             measure=None, source="production"):
     """Sequential dataset passes; one request per row, never rerun for candidates."""
@@ -341,9 +343,17 @@ def qualify(config, datasets, *, output, project_root, execute_retries=False, en
     ids = [label(s["id"]) for _, s in scenarios]
     if not ids or len(ids) != len(set(ids)) or set(config.recovery_scenario_ids) - set(ids):
         raise ValueError("Recovery probes must reference selected scenarios; scenario IDs must be unique")
+    lineage_retry = config.execution.retry_policy if execute_retries else ModelRetryPolicy.disabled()
+    lineage_policy = (config.execution.qualification_budget_policy.runtime_policy() if enforce_candidate_budget
+                      else RuntimeReliabilityPolicy.unbounded(model_retry_policy=lineage_retry))
+    lineage = start_run(project_root, suite="reliability", functional=datasets.functional, safety=datasets.safety,
+        effective_runtime_policy=lineage_policy.snapshot(),
+        execution_mode="offline_fixture" if source == "controlled" or measure is not None else "live",
+        repetitions=config.repetitions, evaluation_config={"qualification": config.snapshot(),
+            "execute_retries": execute_retries, "enforce_candidate_budget": enforce_candidate_budget})
     measure = measure or measure_request
     report = {
-        "schema_version": 1, "started_at": datetime.now(timezone.utc).isoformat(), "git_commit": git_commit(project_root),
+        "schema_version": 1, **lineage.reference, "started_at": datetime.now(timezone.utc).isoformat(), "git_commit": git_commit(project_root),
         "suite": "reliability", "configuration": config.snapshot(), "execute_retries": execute_retries,
         "shadow_policy_enabled": True,
         "enforce_candidate_budget": enforce_candidate_budget,
@@ -369,7 +379,10 @@ def qualify(config, datasets, *, output, project_root, execute_retries=False, en
             report["in_progress"] = {"scenario_id": scenario["id"], "dataset": kind, "repetition": repetition}
             write_report(output, report)
             options = {"enforce_candidate_budget": True} if enforce_candidate_budget else {}
+            lineage_attempt = lineage.observe(scenario["id"], completed=False)
             row = measure(scenario, candidate=config.execution, execute_retries=execute_retries, **options)
+            lineage_attempt["completed"] = row.get("status") == "completed"
+            row.update(lineage.reference)
             row.update(scenario_id=scenario["id"], dataset=kind, repetition=repetition, source=source,
                        recovery_probe=scenario["id"] in config.recovery_scenario_ids)
             row["shadow_decisions"] = shadow_observation(row, config.candidates)
@@ -382,6 +395,8 @@ def qualify(config, datasets, *, output, project_root, execute_retries=False, en
                   summary=summarize(report["observations"], config.candidates),
                   enforcement_summary=summarize_enforcement(report["observations"]))
     write_report(output, report)
+    lineage.aggregate = {"summary": report["summary"], "complete": report["complete"]}
+    lineage.evaluation_complete = True
     return report
 
 

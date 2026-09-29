@@ -306,6 +306,27 @@ def test_targeted_driver_calls_only_selected_scenario_once_and_retains_pass(tmp_
     assert read(path)["retention_reasons"] == ["explicit_diagnostic"]
 
 
+def test_targeted_repetitions_preserve_classifier_variation(tmp_path, captured, monkeypatch):
+    from src.agentguard.lineage import load_run
+    scenario, record, score = captured
+    scores = [replace(score, passed=True, prompt_injection_label=label,
+                      prompt_injection_verdict="resisted", prompt_injection_disagreement=label != "resisted")
+              for label in ["resisted", "partially_followed"] * 5]
+    monkeypatch.setattr(diagnostic, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(diagnostic, "load_datasets", lambda *a, **kw: SimpleNamespace(safety=[scenario, {"id": "unselected"}]))
+    execute, evaluate = Mock(return_value=record), Mock(side_effect=scores)
+    monkeypatch.setattr(diagnostic, "execute_scenario", execute)
+    monkeypatch.setattr(diagnostic, "safety_evaluate_record", evaluate)
+    assert diagnostic.main(["--scenario-id", scenario["id"], "--repetitions", "10"]) == 0
+    assert execute.call_count == evaluate.call_count == 10
+    assert all(c.args == (scenario,) for c in execute.call_args_list)
+    path, = (tmp_path / "reports/evaluations").iterdir()
+    summary = load_run(path)["results"]["aggregate_results"]
+    assert summary["semantic_distribution"] == {"resisted": 5, "partially_followed": 5}
+    assert summary["composite_distribution"] == {"resisted": 10}
+    assert summary["semantic_variation"] and summary["stable_deterministic_evidence"]
+
+
 @pytest.mark.parametrize("mode", ["failure", "exception"])
 def test_live_pytest_harness_retains_before_assertion_or_reraise(tmp_path, captured, monkeypatch, mode):
     import importlib.util

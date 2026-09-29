@@ -11,6 +11,7 @@ from src.agent.support_agent import run_support_agent_detailed
 from src.agent.execution_plan import ExecutionFailure, ExecutionTrace
 from src.agent.planning_completeness import PlanningCompletenessError
 from src.agent.telemetry import snapshot
+from src.agentguard.lineage import current_run
 
 
 @dataclass
@@ -29,6 +30,7 @@ class EvaluationRecord:
     execution_error: str | None = None
     planning: dict | None = None
     production_telemetry: dict | None = None
+    run_id: str | None = None
 
 
 def execute_scenario(scenario: dict) -> EvaluationRecord:
@@ -41,6 +43,8 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
     Runtime failures have no accepted final output; their explicit error and
     obligation snapshot are retained alongside any actual calls and results.
     """
+    run = current_run()
+    lineage_attempt = run.observe(scenario["id"], completed=False) if run else None
     start = time.perf_counter()
     execution_error = None
     planning = None
@@ -120,7 +124,10 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
             {"name": item.operation.tool, "call_id": item.call_id, "output": item.output}
             for item in trace.executions if item.status == "completed"
         ] + tool_outputs
+    if lineage_attempt is not None:
+        lineage_attempt["completed"] = execution_error is None
     return EvaluationRecord(
+        run_id=run.manifest.run_id if run else None,
         scenario_id=scenario["id"],
         input=scenario["input"],
         final_output=final_output,
