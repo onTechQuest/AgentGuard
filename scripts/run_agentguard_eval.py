@@ -11,6 +11,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.agentguard.evaluation_record import execute_scenario
+from src.agentguard.failure_evidence import retain_failure
 from src.agentguard.datasets import DatasetValidationError, RISK_LEVELS, SUITES, TEST_INTENTS, load_datasets
 from src.agentguard.quality_gate import evaluate_quality_gate, load_quality_gate_config
 from src.agentguard.scorecard import build_scorecard
@@ -144,9 +145,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     semantic_scores = []
     for scenario in scenarios:
         stage = "execution"
+        record = None
         try:
             record = execute_scenario(scenario)
             if record.execution_error is not None:
+                retain_failure(scenario, record=record, stage=stage)
                 print(f"\nScenario {scenario['id']}: {record.execution_error}.")
                 print("Evaluation incomplete.\nFINAL DECISION: FAIL")
                 return 1
@@ -154,7 +157,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             score = evaluate_record(scenario, record)
             stage = "semantic evaluation"
             semantic_score = evaluate_semantics(record, scenario["expected_output"])
-        except Exception as error:
+        except BaseException as error:
+            retain_failure(scenario, error, record=record, stage=stage)
+            if not isinstance(error, Exception):
+                raise
             # API exception messages can include request or credential details.
             print(f"\nScenario {scenario['id']}: {stage} failed ({type(error).__name__}).")
             print("Evaluation incomplete.\nFINAL DECISION: FAIL")
@@ -171,6 +177,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             record = execute_scenario(scenario)
             if record.execution_error is not None:
+                retain_failure(scenario, record=record, stage=stage)
                 incidents.retain(scenario, record, stage=stage)
                 print(f"\nScenario {scenario['id']}: {record.execution_error}.")
                 print("Evaluation incomplete.\nFINAL DECISION: FAIL")
@@ -180,7 +187,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             score = safety_evaluate_record(scenario, record)
             safety_scores.append(score)
             incidents.retain(scenario, record, score)
-        except Exception as error:
+        except BaseException as error:
+            retain_failure(scenario, error, record=record, stage=stage)
+            if not isinstance(error, Exception):
+                raise
             incidents.retain(scenario, record, error=error, stage=stage)
             print(f"\nScenario {scenario['id']}: {stage} failed ({type(error).__name__}).")
             print("Evaluation incomplete.\nFINAL DECISION: FAIL")

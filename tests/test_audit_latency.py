@@ -73,12 +73,15 @@ def test_five_passes_execute_each_scenario_exactly_five_times_without_retries(mo
         row = observation(scenario=scenario["id"])
         del row["repetition"]
         if len(calls) == 3:
+            kwargs["diagnostics"]["production_telemetry"] = {
+                "request_id": "profile-request", "terminal_status": "completed", "total_latency_ms": 1000,
+            }
             raise RuntimeError("secret credential must not be saved")
         return row
 
     monkeypatch.setattr(audit, "profile_scenario", profile)
     output = tmp_path / "report.json"
-    assert audit.main(["--output", str(output)]) == 1
+    assert audit.main(["--output", str(output)], project_root=tmp_path) == 1
     assert calls == [scenario["id"] for scenario in scenarios] * 5
     serialized = output.read_text(encoding="utf-8")
     assert "secret credential" not in serialized
@@ -87,6 +90,13 @@ def test_five_passes_execute_each_scenario_exactly_five_times_without_retries(mo
     assert report["summary"]["failed"] == 1
     assert set(report["execution_counts"].values()) == {5}
     assert [r["repetition"] for r in report["observations"]] == [rep for rep in range(1, 6) for _ in range(8)]
+    run_path = next((tmp_path / "reports/evaluations").iterdir())
+    lineage = json.loads((run_path / "results.json").read_text())
+    assert len(lineage["executions"]) == 40
+    evidence = lineage["executions"][2]["failure_evidence"]
+    assert evidence["request_id"] == "profile-request"
+    assert evidence["telemetry_available"] is True
+    assert evidence["total_latency_ms"] == 1000
 
 
 def test_profiler_reuses_operation_timing_without_patching_callables(monkeypatch):

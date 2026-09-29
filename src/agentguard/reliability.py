@@ -108,11 +108,13 @@ def measure_request(scenario, *, candidate, execute_retries=False, enforce_candi
                       else RuntimeReliabilityPolicy.unbounded(model_retry_policy=retry))
     started = clock()
     evidence = None
+    terminal_error = None
     try:
         result = run(scenario["input"], request_budget=budget,
                      runtime_reliability_policy=runtime_policy,
                      retry_policy=retry)
     except Exception as error:
+        terminal_error = error
         raw = telemetry.snapshot(getattr(error, "production_telemetry", None)) or {}
         status = "failed"
         component = raw.get("terminal_failure_component", "request")
@@ -121,6 +123,9 @@ def measure_request(scenario, *, candidate, execute_retries=False, enforce_candi
         raw = telemetry.snapshot(getattr(result.context_wrapper, "production_telemetry", None)) or {}
         status = "completed"
     elapsed = (clock() - started) * 1000
+    if terminal_error is not None:
+        from src.agentguard.failure_evidence import retain_failure
+        retain_failure(scenario, terminal_error)
     row = sanitize_measurement(raw, status=status, elapsed=elapsed)
     row["candidate"] = candidate.name
     row["enforce_candidate_budget"] = enforce_candidate_budget
@@ -380,7 +385,14 @@ def qualify(config, datasets, *, output, project_root, execute_retries=False, en
             write_report(output, report)
             options = {"enforce_candidate_budget": True} if enforce_candidate_budget else {}
             lineage_attempt = lineage.observe(scenario["id"], completed=False)
-            row = measure(scenario, candidate=config.execution, execute_retries=execute_retries, **options)
+            from src.agentguard.failure_evidence import retain_failure
+            try:
+                row = measure(scenario, candidate=config.execution, execute_retries=execute_retries, **options)
+            except BaseException as error:
+                retain_failure(scenario, error)
+                raise
+            if row.get("status") != "completed":
+                retain_failure(scenario)
             lineage_attempt["completed"] = row.get("status") == "completed"
             row.update(lineage.reference)
             row.update(scenario_id=scenario["id"], dataset=kind, repetition=repetition, source=source,

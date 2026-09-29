@@ -12,6 +12,7 @@ from src.agent.execution_plan import ExecutionFailure, ExecutionTrace
 from src.agent.planning_completeness import PlanningCompletenessError
 from src.agent.telemetry import snapshot
 from src.agentguard.lineage import current_run
+from src.agentguard.failure_evidence import capture_scenario_failures, retain_failure
 
 
 @dataclass
@@ -33,6 +34,7 @@ class EvaluationRecord:
     run_id: str | None = None
 
 
+@capture_scenario_failures
 def execute_scenario(scenario: dict) -> EvaluationRecord:
     """Execute once and capture calls, outputs, elapsed time, and SDK usage.
 
@@ -47,16 +49,19 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
     lineage_attempt = run.observe(scenario["id"], completed=False) if run else None
     start = time.perf_counter()
     execution_error = None
+    terminal_error = None
     planning = None
     production_telemetry = None
     try:
         result = run_support_agent_detailed(scenario["input"])
     except PlanningCompletenessError as error:
+        terminal_error = error
         production_telemetry = snapshot(getattr(error, "production_telemetry", None))
         planning = error.planning.snapshot()
         trace, usage = None, error.planning.usage
         execution_error, final_output, new_items = str(error), "", []
     except ExecutionFailure as error:
+        terminal_error = error
         production_telemetry = snapshot(getattr(error, "production_telemetry", None))
         # Preserve actual attempts and explicit failure without re-running either
         # the router or support model, or inventing an authoritative tool result.
@@ -126,7 +131,7 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
         ] + tool_outputs
     if lineage_attempt is not None:
         lineage_attempt["completed"] = execution_error is None
-    return EvaluationRecord(
+    record = EvaluationRecord(
         run_id=run.manifest.run_id if run else None,
         scenario_id=scenario["id"],
         input=scenario["input"],
@@ -143,3 +148,7 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
         planning=planning,
         production_telemetry=production_telemetry,
     )
+
+    if terminal_error is not None:
+        retain_failure(scenario, terminal_error, record=record)
+    return record

@@ -105,3 +105,37 @@ and record/incident/result association without provider calls.
 Later, explicitly authorized live validation requires just one smoke invocation:
 `.venv/Scripts/python.exe scripts/run_agentguard_eval.py --suite smoke`.
 This command has not been executed as part of 14A implementation.
+
+
+## Incomplete scenario evidence (14A-R)
+
+The v1 results schema permits an optional `failure_evidence` object on failed
+execution rows. Completed rows retain their original shape. Every envelope links
+`run_id`, `manifest_digest`, and `scenario_id`; the immutable manifest and run-level
+completion artifacts retain their existing roles.
+
+At the evaluation boundary, escaping exceptions (including cancellation) are
+re-raised unchanged after their final attached production telemetry is projected.
+Converted execution/planning failures are captured before returning their existing
+record. Functional, safety, latency, and reliability runners also capture terminal
+failures at their own boundaries. Exception causes are searched for attached
+telemetry; evaluator failures may use the existing production record snapshot.
+`evaluation_stage` distinguishes evaluator failures from production failures:
+`terminal_status` always describes the observed production request, which may have
+completed before an evaluator failed. No request is repeated to obtain evidence.
+
+The allowlist retains sanitized exception type/category/component, request ID,
+latency, deadline and abandonment flags, retry configuration/counts, measured
+component durations, observed production usage/completeness, and resolved model
+identities. Unobserved numbers and flags are null, missing classification is
+`UNKNOWN`, missing usage completeness is `UNAVAILABLE` (or `UNKNOWN` when a record has
+known token counts but no completeness classification), and unobserved models
+produce an empty list. `telemetry_available` is false when no snapshot exists.
+Existing record latency and production token counts are retained when the
+telemetry snapshot lacks them. Zero and false are retained only when observed. No configured model is substituted
+for an observed identity. Telemetry categories use the existing failure taxonomy.
+
+Exception text, arguments, prompts, answers, headers, credentials, tool payloads,
+and raw telemetry are excluded. Identifier fields use format checks and the
+existing safety-incident redactor. The extension is evaluation-only and changes
+no production call, policy, deadline, retry, or quality-gate behavior.

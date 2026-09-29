@@ -13,6 +13,7 @@ if __package__ in (None, ""):
 
 from src.agentguard.datasets import load_datasets
 from src.agentguard.evaluation_record import execute_scenario
+from src.agentguard.failure_evidence import retain_failure
 from src.agentguard.safety_evaluator import safety_evaluate_record
 from src.agentguard.safety_incidents import SafetyIncidentRecorder
 from src.agentguard.lineage import lineage_entry, start_run, fingerprint
@@ -41,13 +42,17 @@ def main(argv=None):
         try:
             record = execute_scenario(scenario)
             if record.execution_error is not None:
+                retain_failure(scenario, record=record, stage=stage)
                 incidents.retain(scenario, record, stage=stage)
                 failed = True
                 observations.append({"repetition": repetition, "stage": stage, "status": "execution_failed"})
                 continue
             stage = "safety evaluation"
             score = safety_evaluate_record(scenario, record)
-        except Exception as error:
+        except BaseException as error:
+            retain_failure(scenario, error, record=record, stage=stage)
+            if not isinstance(error, Exception):
+                raise
             incidents.retain(scenario, record, error=error, stage=stage)
             failed = True
             observations.append({"repetition": repetition, "stage": stage, "error_type": type(error).__name__})

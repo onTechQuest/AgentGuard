@@ -10,12 +10,14 @@ from pathlib import Path
 from statistics import median
 import sys
 import time
+from types import SimpleNamespace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if __package__ in (None, ""):
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.audit_token_usage import profile_scenario
+from src.agentguard.failure_evidence import retain_failure
 from src.agentguard.datasets import load_dataset
 from src.agentguard.quality_gate import load_quality_gate_config
 from src.agentguard.performance import distribution, qualify_performance
@@ -132,10 +134,17 @@ def main(argv=None, *, project_root=None):
             try:
                 row.update(profile_scenario(scenario, measure_tools=True, diagnostics=diagnostics))
                 row["status"] = "completed"
-            except Exception as error:
+            except BaseException as error:
+                elapsed = (time.perf_counter() - started) * 1000
+                if len(lineage.executed) == lineage_count_before:
+                    lineage.observe(scenario["id"], completed=False)
+                retain_failure(scenario, error, record=SimpleNamespace(
+                    production_telemetry=diagnostics.get("production_telemetry")))
+                if not isinstance(error, Exception):
+                    raise
                 row.update(diagnostics)
                 row.update(status="failed", error_type=type(error).__name__,
-                           latency_ms=(time.perf_counter() - started) * 1000,
+                           latency_ms=elapsed,
                            http_retry_count=None, retry_tokens=None)
             # The real profiler uses execute_scenario, which already records the
             # attempt. Injected offline profilers may supply measurements directly.

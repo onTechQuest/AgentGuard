@@ -193,3 +193,32 @@ def test_assessor_detects_false_completion_and_unauthorized_execution(faults):
     observed.tool_calls.append(("issue_refund", {"order_id": "ORD-1001"}))
     row = assess(case, observed)
     assert row.fabrication_violation and row.authorization_violation and not row.passed
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
+def test_fault_lineage_retention(faults, tmp_path, case):
+    from src.agentguard import lineage as lineage
+    scenario = {"id": "offline-record", "input": PROMPT, "tier": "smoke", "expected_output": "Expected"}
+    captured = {}
+
+    @lineage.lineage_entry
+    def evaluate():
+        run = lineage.start_run(tmp_path, suite="smoke", functional=[scenario], execution_mode="offline_fixture")
+        captured["run"] = run
+        captured["observed"] = Harness(case.injection).run(lambda: execute_scenario(scenario))
+
+    evaluate()
+    observed = captured["observed"]
+    loaded = lineage.load_run(captured["run"].path)
+    assert loaded["completion_state"] == "INCOMPLETE"
+    rows = loaded["results"]["executions"]
+    assert len(rows) == 1 and rows[0]["completed"] is False
+    evidence = rows[0]["failure_evidence"]
+    assert evidence["telemetry_available"] is True
+    assert evidence["request_id"] == observed.telemetry["request_id"]
+    assert evidence["failure_category"] == case.category
+    assert evidence["failure_component"] == case.failure_component
+    assert evidence["total_latency_ms"] == observed.telemetry["total_latency_ms"]
+    assert all(count <= 1 for count in observed.calls.values())
+    serialized = json.dumps(evidence)
+    assert all(private not in serialized for private in (*PRIVATE_MARKERS, PROMPT, "ORD-1001"))

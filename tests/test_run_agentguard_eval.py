@@ -424,3 +424,27 @@ def test_release_qualification_reuses_records_and_enforces_bundle(run_setup,monk
     assert kw['deployment']['active'] is False
     assert kw['records']==[*run_setup.records,*run_setup.safety_records]
     assert kw['quality_result'].passed
+
+
+@pytest.mark.parametrize("scoring", [False, True])
+def test_terminal_failure_lineage_in_functional_runner(run_setup, scoring):
+    setup = run_setup
+    setup.records[0].production_telemetry = {"request_id": "first-request", "terminal_status": "completed"}
+    if scoring:
+        setup.semantic_eval.side_effect = ValueError("secret provider detail")
+    else:
+        setup.execute.side_effect = [setup.records[0], ValueError("secret provider detail")]
+    assert runner.main() == 1
+    run_path = next((runner.PROJECT_ROOT / "reports/evaluations").iterdir())
+    results = json.loads((run_path / "results.json").read_text())
+    completion = json.loads((run_path / "completion.json").read_text())
+    assert completion["state"] == results["completion_state"] == "INCOMPLETE"
+    row = results["executions"][-1]
+    e = row["failure_evidence"]
+    assert e["scenario_id"] == setup.scenarios[0 if scoring else 1]["id"]
+    assert e["request_id"] == ("first-request" if scoring else None)
+    assert e["evaluation_stage"] == ("semantic evaluation" if scoring else "execution")
+    assert e["manifest_digest"] == results["manifest_digest"]
+    assert e["run_id"] == results["run_id"]
+    assert "secret provider detail" not in json.dumps(results)
+    assert setup.execute.call_count == (1 if scoring else 2)

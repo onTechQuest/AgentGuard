@@ -4,17 +4,402 @@
   "title": "Evaluation result envelope v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["result_schema_version", "run_id", "manifest_digest", "completion_state", "executed_scenario_count", "completed_scenario_count", "executions", "failures", "aggregate_results", "observed_model_identities"],
+  "required": [
+    "result_schema_version",
+    "run_id",
+    "manifest_digest",
+    "completion_state",
+    "executed_scenario_count",
+    "completed_scenario_count",
+    "executions",
+    "failures",
+    "aggregate_results",
+    "observed_model_identities"
+  ],
   "properties": {
-    "result_schema_version": {"const": 1},
-    "run_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
-    "manifest_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "completion_state": {"enum": ["COMPLETED", "INCOMPLETE"]},
-    "executed_scenario_count": {"type": "integer", "minimum": 0},
-    "completed_scenario_count": {"type": "integer", "minimum": 0},
-    "executions": {"type": "array", "items": {"type": "object", "required": ["scenario_id", "completed"], "additionalProperties": false, "properties": {"scenario_id": {"type": "string"}, "completed": {"type": "boolean"}}}},
-    "failures": {"type": "array", "items": {"type": "string"}},
-    "aggregate_results": {"type": "object"},
-    "observed_model_identities": {"type": "array", "items": {"type": "object"}}
+    "result_schema_version": {
+      "const": 1
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "completion_state": {
+      "enum": [
+        "COMPLETED",
+        "INCOMPLETE"
+      ]
+    },
+    "executed_scenario_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "completed_scenario_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "executions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "scenario_id",
+          "completed"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "scenario_id": {
+            "type": "string"
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "failure_evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "run_id",
+              "manifest_digest",
+              "scenario_id",
+              "evaluation_stage",
+              "failure_category",
+              "usage_completeness",
+              "request_id",
+              "exception_type",
+              "failure_component",
+              "terminal_status",
+              "deadline_exhaustion_stage",
+              "total_latency_ms",
+              "request_deadline_ms",
+              "retry_attempts_total",
+              "deadline_exhausted",
+              "late_completion",
+              "result_abandoned",
+              "remote_outcome_unknown",
+              "retry_policy_enabled",
+              "lower_layer_retries_configured",
+              "completed",
+              "telemetry_available",
+              "component_latency_ms",
+              "production_tokens",
+              "observed_model_identities",
+              "terminal_exception_type"
+            ],
+            "properties": {
+              "run_id": {
+                "type": "string"
+              },
+              "manifest_digest": {
+                "type": "string"
+              },
+              "scenario_id": {
+                "type": "string"
+              },
+              "evaluation_stage": {
+                "type": "string"
+              },
+              "failure_category": {
+                "type": "string"
+              },
+              "usage_completeness": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "exception_type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "failure_component": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "terminal_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "deadline_exhaustion_stage": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "total_latency_ms": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "request_deadline_ms": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "retry_attempts_total": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "deadline_exhausted": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "late_completion": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "result_abandoned": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "remote_outcome_unknown": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "retry_policy_enabled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "lower_layer_retries_configured": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "completed": {
+                "const": false
+              },
+              "telemetry_available": {
+                "type": "boolean"
+              },
+              "component_latency_ms": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "primary_router",
+                  "recovery_planner",
+                  "synthesis",
+                  "required_operations"
+                ],
+                "properties": {
+                  "primary_router": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "recovery_planner": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "synthesis": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "required_operations": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                }
+              },
+              "production_tokens": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "input_tokens",
+                  "output_tokens",
+                  "total_tokens"
+                ],
+                "properties": {
+                  "input_tokens": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "output_tokens": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "total_tokens": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                }
+              },
+              "observed_model_identities": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "component",
+                    "model"
+                  ],
+                  "properties": {
+                    "component": {
+                      "enum": [
+                        "primary_router",
+                        "recovery_planner",
+                        "synthesis"
+                      ]
+                    },
+                    "model": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "terminal_exception_type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stage_budgets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "component",
+                    "duration_ms",
+                    "remaining_budget_before_ms",
+                    "configured_stage_cap_ms",
+                    "allocated_allowance_ms",
+                    "stage_admitted",
+                    "result_accepted",
+                    "late_completion",
+                    "result_abandoned"
+                  ],
+                  "properties": {
+                    "component": {
+                      "enum": [
+                        "primary_router",
+                        "recovery_planner",
+                        "synthesis"
+                      ]
+                    },
+                    "duration_ms": {
+                      "type": [
+                        "number",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "remaining_budget_before_ms": {
+                      "type": [
+                        "number",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "configured_stage_cap_ms": {
+                      "type": [
+                        "number",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "allocated_allowance_ms": {
+                      "type": [
+                        "number",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "stage_admitted": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "result_accepted": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "late_completion": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "result_abandoned": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "aggregate_results": {
+      "type": "object"
+    },
+    "observed_model_identities": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
   }
 }
