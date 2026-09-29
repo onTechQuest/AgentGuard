@@ -151,4 +151,6 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
 
     if terminal_error is not None:
         retain_failure(scenario, terminal_error, record=record)
+    if run is not None:
+        run.capture(scenario, attempt=lineage_attempt, record=record)
     return record

@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "completion_schema_version",
+    "run_id",
+    "manifest_digest",
+    "state",
+    "results_digest",
+    "timestamp"
+  ],
+  "properties": {
+    "completion_schema_version": {
+      "const": 1
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "state": {
+      "enum": [
+        "COMPLETED",
+        "INCOMPLETE"
+      ]
+    },
+    "results_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "source_integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_fingerprint",
+        "end_fingerprint",
+        "state",
+        "start_source",
+        "end_source"
+      ],
+      "properties": {
+        "start_fingerprint": {
+          "type": "string"
+        },
+        "end_fingerprint": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "MATCH",
+            "CHANGED",
+            "UNKNOWN"
+          ]
+        },
+        "start_source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "git_commit",
+            "dirty_state",
+            "source_fingerprint"
+          ],
+          "properties": {
+            "git_commit": {
+              "type": "string"
+            },
+            "dirty_state": {
+              "enum": [
+                "CLEAN",
+                "DIRTY",
+                "UNKNOWN"
+              ]
+            },
+            "source_fingerprint": {
+              "$ref": "#/$defs/identity"
+            }
+          }
+        },
+        "end_source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "git_commit",
+            "dirty_state",
+            "source_fingerprint"
+          ],
+          "properties": {
+            "git_commit": {
+              "type": "string"
+            },
+            "dirty_state": {
+              "enum": [
+                "CLEAN",
+                "DIRTY",
+                "UNKNOWN"
+              ]
+            },
+            "source_fingerprint": {
+              "$ref": "#/$defs/identity"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "identity": {
+      "oneOf": [
+        {
+          "const": "UNKNOWN"
+        },
+        {
+          "$ref": "#/$defs/digest"
+        }
+      ]
+    },
+    "model": {
+      "type": "object",
+      "required": [
+        "resolved",
+        "provider",
+        "resolution_provenance"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "dataset": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "count",
+        "fingerprint"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    }
+  }
+}

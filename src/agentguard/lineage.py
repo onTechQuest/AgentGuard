@@ -129,11 +129,12 @@ def source_identity(root):
         for path in sorted((root / folder).rglob("*")):
             if path.is_file() and path.suffix in {".py", ".json", ".yaml", ".yml"}:
                 files[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-    path = root / "requirements.txt"
-    if path.exists():
-        files["requirements.txt"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    for relative in ("requirements.txt", "data/orders.json"):
+        path = root / relative
+        if path.exists():
+            files[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
     return dict(git_commit=commit or UNKNOWN, dirty_state=UNKNOWN if state is None else "DIRTY" if state else "CLEAN",
-                source_fingerprint=fingerprint("source-inventory-v1", files) if files else UNKNOWN)
+                source_fingerprint=fingerprint("source-inventory-v2", files) if files else UNKNOWN)
 
 
 @dataclass(frozen=True)
@@ -147,7 +148,8 @@ class EvaluationRunManifest:
             "execution_mode", "source", "production_models", "judge_models", "datasets", "scenario_count",
             "scenario_set_fingerprint", "execution_order_fingerprint", "fingerprints", "libraries", "hosting",
             "lineage_status", "unavailable_fields"}
-        if not required <= document.keys() or document["manifest_schema_version"] != 1:
+        if (not required <= document.keys() or document["manifest_schema_version"] != 1
+                or document["canonicalization_version"] != 1):
             raise ValueError("Invalid evaluation manifest")
         if UUID(document["run_id"]).hex != document["run_id"]:
             raise ValueError("Canonical UUID run ID required")
@@ -187,6 +189,11 @@ class RunArtifacts:
     def __init__(self, root, manifest, scenarios):
         EvaluationRunManifest.create(manifest.to_dict())
         self.manifest = manifest
+        self.root = Path(root)
+        self.scenario_rows = {r["scenario_id"]: r for r in scenarios}
+        self.protocol = manifest.to_dict().get("protocol")
+        self.populations = self.protocol["scenario_populations"] if self.protocol else {r["scenario_id"]: "functional" for r in scenarios}
+        self.observations = []
         self.path = Path(root) / "reports" / "evaluations" / manifest.run_id
         self.path.mkdir(parents=True, exist_ok=False)
         self.executed = []
@@ -201,18 +208,57 @@ class RunArtifacts:
         return dict(run_id=self.manifest.run_id, manifest_digest=self.manifest.digest)
 
     def observe(self, scenario_id, *, completed=True):
+        from src.agentguard.observations import blank
+        repetition = 1 + sum(r["scenario_id"] == scenario_id for r in self.executed)
+        observation = blank(self, scenario_id, repetition)
         self.executed.append(dict(scenario_id=scenario_id, completed=completed))
+        if self.protocol and self.protocol["repetitions"] > 1:
+            self.executed[-1]["repetition"] = repetition
+        observation.update(completed=completed, completion_state="COMPLETED" if completed else "INCOMPLETE")
+        self.observations.append(observation)
         return self.executed[-1]
+
+    def capture(self, scenario, *, attempt=None, attempt_index=None, **evidence):
+        from src.agentguard.observations import update
+        if attempt is None:
+            if attempt_index is not None:
+                attempt = self.executed[attempt_index] if len(self.executed) > attempt_index else None
+            else:
+                attempt = next((r for r in reversed(self.executed) if r["scenario_id"] == scenario["id"]), None)
+        if attempt is None:
+            record = evidence.get("record")
+            attempt = self.observe(scenario["id"], completed=record is not None and getattr(record, "execution_error", None) is None)
+        index = next(i for i, row in enumerate(self.executed) if row is attempt)
+        update(self, self.observations[index], scenario=scenario, **evidence)
+        self.observations[index].update(completed=attempt["completed"], completion_state="COMPLETED" if attempt["completed"] else "INCOMPLETE")
+
+    def source_integrity(self):
+        start = self.manifest.to_dict()["source"]
+        try:
+            end = source_identity(self.root)
+        except (OSError, ValueError):
+            end = dict(source_fingerprint=UNKNOWN, git_commit=UNKNOWN, dirty_state=UNKNOWN)
+        known = all(side.get(k, UNKNOWN) != UNKNOWN for side in (start, end) for k in ("source_fingerprint", "git_commit", "dirty_state"))
+        state = "UNKNOWN" if not known else "MATCH" if start == end else "CHANGED"
+        return dict(start_fingerprint=start["source_fingerprint"], end_fingerprint=end["source_fingerprint"], state=state,
+                    start_source=start, end_source=end)
 
     def finish(self, *, state="COMPLETED", failures=()):
         from src.agentguard.lineage_adapters import plain
+        from src.agentguard.metric_registry import aggregate, REGISTRY_VERSION
+        for row in self.executed:
+            self.capture({"id": row["scenario_id"]}, attempt=row, failure=row.get("failure_evidence"))
+        integrity = self.source_integrity()
+        population_complete = state == "COMPLETED" and len(self.executed) == self.manifest.to_dict().get("planned_execution_count", len(self.scenario_rows))
         results = dict(result_schema_version=1, **self.reference, completion_state=state,
             executed_scenario_count=len(self.executed), completed_scenario_count=sum(r["completed"] for r in self.executed),
             executions=self.executed, failures=list(failures), aggregate_results=plain(self.aggregate),
-            observed_model_identities=self.observed_models)
+            observed_model_identities=self.observed_models, observation_contract_version=1,
+            observations=plain(self.observations), continuous_aggregates=aggregate(self.observations, population_complete=population_complete),
+            metric_registry_version=REGISTRY_VERSION, source_integrity=integrity, protocol=self.protocol)
         publish(self.path / "results.json", results)
         publish(self.path / "completion.json", dict(completion_schema_version=1, **self.reference,
-            state=state, results_digest=fingerprint("evaluation-results", results),
+            state=state, results_digest=fingerprint("evaluation-results", results), source_integrity=integrity,
             timestamp=datetime.now(timezone.utc).isoformat()))
 
 
@@ -231,6 +277,7 @@ def load_run(path):
         result["results"] = read_document(path / "results.json")
         if any(result["results"].get(k) != v for k, v in reference.items()):
             raise ValueError("Result manifest reference mismatch")
+    completion = None
     if (path / "completion.json").exists():
         completion = read_document(path / "completion.json")
         if (any(completion.get(k) != v for k, v in reference.items()) or "results" not in result or
@@ -238,6 +285,8 @@ def load_run(path):
                 completion.get("state") != result["results"].get("completion_state")):
             raise ValueError("Completion integrity failure")
         result["completion_state"] = completion["state"]
+    from src.agentguard.artifact_validation import validate_loaded
+    validate_loaded(result, completion)
     return result
 
 
@@ -252,17 +301,31 @@ def lineage_entry(function):
     """Close results even on early returns; abrupt termination leaves INCOMPLETE."""
     @wraps(function)
     def wrapped(*args, **kwargs):
+        from src.agentguard.invocation import finalization_failure
+        def finish(**options):
+            try:
+                current_run().finish(**options)
+            except Exception as error:
+                finalization_failure(error)
+                raise
         token = _active.set(None)
         try:
             result = function(*args, **kwargs)
         except BaseException as error:
             if current_run():
-                current_run().finish(state="INCOMPLETE", failures=[type(error).__name__])
+                run = current_run()
+                if run.executed and not run.executed[-1]["completed"] and "failure_evidence" not in run.executed[-1]:
+                    from src.agentguard.failure_evidence import retain_failure
+                    retain_failure({"id": run.executed[-1]["scenario_id"]}, error)
+                try:
+                    finish(state="INCOMPLETE", failures=[type(error).__name__])
+                except Exception:
+                    pass  # Preserve the original terminal exception/cancellation.
             raise
         else:
             if current_run():
                 run = current_run()
-                run.finish(state="COMPLETED" if run.evaluation_complete else "INCOMPLETE")
+                finish(state="COMPLETED" if run.evaluation_complete else "INCOMPLETE")
             return result
         finally:
             _active.reset(token)
@@ -277,6 +340,9 @@ def start_run(root, *, suite, functional=(), safety=(), execution_mode="live", e
         effective_runtime_policy=effective_runtime_policy)
     run = RunArtifacts(root, manifest, rows)
     _active.set(run)
+    from src.agentguard.invocation import current_invocation
+    if current_invocation():
+        current_invocation().link(run)
     return run
 
 

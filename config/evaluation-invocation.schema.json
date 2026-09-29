@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "invocation_schema_version",
+    "invocation_id",
+    "created_at",
+    "suite",
+    "requested_mode",
+    "requested_release_qualification",
+    "process_state",
+    "process_exit_code",
+    "evaluation_run_id",
+    "evaluation_artifact_path",
+    "linked_release_run_id",
+    "linked_release_artifact_path",
+    "setup_error_type",
+    "finalization_error_type",
+    "comparison_id",
+    "baseline_id"
+  ],
+  "properties": {
+    "invocation_schema_version": {
+      "const": 1
+    },
+    "invocation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "suite": {
+      "enum": [
+        "smoke",
+        "full",
+        "performance",
+        "reliability",
+        "structural"
+      ]
+    },
+    "requested_mode": {
+      "enum": [
+        "live",
+        "offline_fixture",
+        "replay"
+      ]
+    },
+    "requested_release_qualification": {
+      "type": "boolean"
+    },
+    "process_state": {
+      "enum": [
+        "CREATED",
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED",
+        "SETUP_FAILED"
+      ]
+    },
+    "process_exit_code": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "evaluation_run_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evaluation_artifact_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "linked_release_run_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "linked_release_artifact_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "setup_error_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "finalization_error_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "comparison_id": {
+      "type": "null"
+    },
+    "baseline_id": {
+      "type": "null"
+    }
+  }
+}

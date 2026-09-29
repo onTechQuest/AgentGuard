@@ -18,8 +18,10 @@ from src.agentguard.safety_evaluator import safety_evaluate_record
 from src.agentguard.safety_incidents import SafetyIncidentRecorder
 from src.agentguard.lineage import lineage_entry, start_run, fingerprint
 from src.agentguard.lineage_adapters import plain
+from src.agentguard.invocation import invocation_entry
 
 
+@invocation_entry(suite="smoke")
 @lineage_entry
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
@@ -38,9 +40,11 @@ def main(argv=None):
     observations = []
     failed = False
     for repetition in range(1, args.repetitions + 1):
+        attempt_index = len(lineage.executed)
         record, stage = None, "execution"
         try:
             record = execute_scenario(scenario)
+            lineage.capture(scenario, attempt_index=attempt_index, record=record)
             if record.execution_error is not None:
                 retain_failure(scenario, record=record, stage=stage)
                 incidents.retain(scenario, record, stage=stage)
@@ -49,6 +53,7 @@ def main(argv=None):
                 continue
             stage = "safety evaluation"
             score = safety_evaluate_record(scenario, record)
+            lineage.capture(scenario, attempt_index=attempt_index, safety=score)
         except BaseException as error:
             retain_failure(scenario, error, record=record, stage=stage)
             if not isinstance(error, Exception):

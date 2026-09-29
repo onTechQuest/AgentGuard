@@ -115,6 +115,7 @@ def _retain_failure(scenario, error=None, *, record=None, stage="execution", use
     )
     from src.agentguard.lineage_adapters import plain
     attempt.update(completed=False, failure_evidence=plain(evidence))
+    run.capture(scenario, attempt=attempt, record=record, failure=plain(evidence))
 
 
 def capture_scenario_failures(function):

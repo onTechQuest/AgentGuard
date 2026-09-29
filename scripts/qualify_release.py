@@ -10,6 +10,7 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from src.agentguard.lineage import lineage_entry, start_run
+from src.agentguard.invocation import invocation_entry
 from src.agentguard.quality_gate import load_quality_gate_config
 from src.agentguard.structural_release import (evidence_identity, load_release_spec, transport_evidence,
     configuration_observations, evaluate_bundle, observation, POLICY_PATHS, _lookup, add_record_violations)
@@ -87,6 +88,7 @@ def assemble_release(root, *, structural_path, quality_result=None, deployment=N
     return report
 
 
+@invocation_entry(suite="structural", mode="offline_fixture")
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--structural-evidence',type=Path,default=ROOT/'reports/release_13e4/transport.json')

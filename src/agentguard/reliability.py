@@ -123,6 +123,10 @@ def measure_request(scenario, *, candidate, execute_retries=False, enforce_candi
         raw = telemetry.snapshot(getattr(result.context_wrapper, "production_telemetry", None)) or {}
         status = "completed"
     elapsed = (clock() - started) * 1000
+    from src.agentguard.lineage import current_run
+    lineage = current_run()
+    if lineage is not None:
+        lineage.capture(scenario, measurement={"production_telemetry": raw, "latency_ms": elapsed})
     if terminal_error is not None:
         from src.agentguard.failure_evidence import retain_failure
         retain_failure(scenario, terminal_error)
@@ -394,6 +398,7 @@ def qualify(config, datasets, *, output, project_root, execute_retries=False, en
             if row.get("status") != "completed":
                 retain_failure(scenario)
             lineage_attempt["completed"] = row.get("status") == "completed"
+            lineage.capture(scenario, attempt=lineage_attempt, measurement=row)
             row.update(lineage.reference)
             row.update(scenario_id=scenario["id"], dataset=kind, repetition=repetition, source=source,
                        recovery_probe=scenario["id"] in config.recovery_scenario_ids)

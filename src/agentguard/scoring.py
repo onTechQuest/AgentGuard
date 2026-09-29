@@ -17,6 +17,7 @@ class ScenarioScore:
     argument_pass: bool
     overall_pass: bool
     failures: list[str]
+    factual_grounding_pass: bool | None = None
 
 
 def _argument_failures(expected: dict, actual: object) -> list[str]:
@@ -52,8 +53,11 @@ def evaluate_record(scenario: dict, record: "EvaluationRecord") -> ScenarioScore
     for forbidden in scenario["forbidden_contains"]:
         if forbidden.lower() in output:
             failures.append(f"Forbidden output {forbidden!r} present; actual: {record.final_output!r}")
+    factual_grounding_pass = None
     if "expected_authoritative_facts" in scenario:
-        failures.extend(factual_grounding_failures(scenario, record))
+        grounding_failures = factual_grounding_failures(scenario, record)
+        factual_grounding_pass = not grounding_failures
+        failures.extend(grounding_failures)
     functional_pass = not failures
 
     expected_calls = scenario["expected_tools"]
@@ -114,4 +118,5 @@ def evaluate_record(scenario: dict, record: "EvaluationRecord") -> ScenarioScore
         argument_pass=argument_pass,
         overall_pass=functional_pass and tool_pass and argument_pass,
         failures=failures,
+        factual_grounding_pass=factual_grounding_pass,
     )

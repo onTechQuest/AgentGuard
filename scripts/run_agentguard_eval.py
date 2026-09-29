@@ -20,6 +20,7 @@ from src.agentguard.semantic_evaluator import evaluate_semantics
 from src.agentguard.safety_evaluator import safety_evaluate_record
 from src.agentguard.safety_incidents import SafetyIncidentRecorder
 from src.agentguard.lineage import lineage_entry, start_run
+from src.agentguard.invocation import invocation_entry, setup_failure
 
 
 GATE_LABELS = {
@@ -96,6 +97,7 @@ def print_production_usage(label, usage, threshold):
         print(f"  {observation.scenario_id}: {observation.latency_ms:.0f} ms")
 
 
+@invocation_entry(suite="smoke")
 @lineage_entry
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
@@ -115,6 +117,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                              execute_retries=args.execute_retries,
                              enforce_candidate_budget=args.enforce_candidate_budget)
         except Exception as error:
+            setup_failure(error)
             # Configuration/provider error messages can contain sensitive input.
             print(f"Reliability qualification incomplete ({type(error).__name__}). Check configuration and report destination.")
             return 1
@@ -134,6 +137,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             if not isinstance(scenario["expected_output"], str):
                 raise ValueError("expected_output must be a string")
     except Exception as error:
+        setup_failure(error)
         print(f"Evaluation setup failed ({type(error).__name__}).")
         if isinstance(error, DatasetValidationError):
             print(str(error))
@@ -148,6 +152,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         record = None
         try:
             record = execute_scenario(scenario)
+            lineage.capture(scenario, record=record)
             if record.execution_error is not None:
                 retain_failure(scenario, record=record, stage=stage)
                 print(f"\nScenario {scenario['id']}: {record.execution_error}.")
@@ -155,8 +160,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 1
             stage = "deterministic evaluation"
             score = evaluate_record(scenario, record)
+            lineage.capture(scenario, deterministic=score)
             stage = "semantic evaluation"
             semantic_score = evaluate_semantics(record, scenario["expected_output"])
+            lineage.capture(scenario, semantic=semantic_score)
         except BaseException as error:
             retain_failure(scenario, error, record=record, stage=stage)
             if not isinstance(error, Exception):
@@ -176,6 +183,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         record = None
         try:
             record = execute_scenario(scenario)
+            lineage.capture(scenario, record=record)
             if record.execution_error is not None:
                 retain_failure(scenario, record=record, stage=stage)
                 incidents.retain(scenario, record, stage=stage)
@@ -185,6 +193,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             safety_records.append(record)
             stage = "safety evaluation"
             score = safety_evaluate_record(scenario, record)
+            lineage.capture(scenario, safety=score)
             safety_scores.append(score)
             incidents.retain(scenario, record, score)
         except BaseException as error:

@@ -21,8 +21,9 @@ SCENARIO = dict(id="return_002", input="Synthetic input", tier="smoke", expected
 
 
 @pytest.fixture
-def run(tmp_path):
-    manifest, rows = build_manifest(ROOT, suite="smoke", functional=[SCENARIO], safety=[])
+def run(tmp_path, request):
+    planned = [SCENARIO, dict(SCENARIO, id="completed")] if getattr(request, "param", False) else [SCENARIO]
+    manifest, rows = build_manifest(ROOT, suite="smoke", functional=planned, safety=[])
     run = l.RunArtifacts(tmp_path, manifest, rows)
     token = l._active.set(run)
     yield run
@@ -115,6 +116,7 @@ def test_generic_failures(run, monkeypatch, kind, category):
     assert "private" not in json.dumps(evidence(run))
 
 
+@pytest.mark.parametrize("run", [True], indirect=True)
 def test_mixed_run_completed_unchanged(run, monkeypatch):
     result = SimpleNamespace(final_output="ok",new_items=[],context_wrapper=SimpleNamespace(usage=SimpleNamespace()))
     call = Mock(side_effect=[result,ValueError("private")])

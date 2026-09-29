@@ -22,6 +22,7 @@ from src.agentguard.datasets import load_dataset
 from src.agentguard.quality_gate import load_quality_gate_config
 from src.agentguard.performance import distribution, qualify_performance
 from src.agentguard.lineage import lineage_entry, start_run
+from src.agentguard.invocation import invocation_entry
 
 
 def summarize(observations, threshold):
@@ -82,6 +83,7 @@ def save_report(path, report):
     temporary.replace(path)
 
 
+@invocation_entry(suite="performance")
 @lineage_entry
 def main(argv=None, *, project_root=None):
     root = Path(project_root) if project_root is not None else PROJECT_ROOT
@@ -150,6 +152,7 @@ def main(argv=None, *, project_root=None):
             # attempt. Injected offline profilers may supply measurements directly.
             if len(lineage.executed) == lineage_count_before:
                 lineage.observe(scenario["id"], completed=row["status"] == "completed")
+            lineage.capture(scenario, attempt_index=lineage_count_before, measurement=row)
             save_report(args.output, report)
             print(f"  {row['status']}: {row['latency_ms']:.0f} ms", flush=True)
     report["complete"] = True
