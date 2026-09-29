@@ -156,6 +156,14 @@ def missing_order():
     "ORDER: `ord-9999`, WAS\tNOT   FOUND!",
     "Your order was not found in our records.",
     "ORD-9999 was not found.",
+    "Order **ORD-9999** wasn\u2019t found. Please verify the order ID and try again.",
+    "Order **ORD-9999** was not found.",
+    "Order *ORD-9999* could not be found.",
+    "Order *ORD-9999* does not exist.",
+    "Order `ORD-9999` was not found.",
+    "Order: **ORD-9999**, was not found!",
+    "**Order ORD-9999 was not found.**",
+    "Order **ORD-9999** **wasn't found**.",
 ])
 def test_order_not_found_realizations(missing_order, output):
     scenario, record = missing_order
@@ -172,6 +180,14 @@ def test_order_not_found_realizations(missing_order, output):
     "ORD-9999 was found but tracking was not found.", "Order ORD-9999 was found.", "",
     "Order ORD-1001 was not found.", "If order ORD-9999 was not found, try again.",
     "Order ORD-9999 was not found?", "Order ORD-9999 was not found. Order ORD-9999 is processing.",
+    "The tracking number **wasn't found** for ORD-9999.",
+    "The carrier **was not found** for ORD-9999.",
+    "**ORD-9999** was found but tracking was not found.",
+    "Order **ORD-9999** is processing.",
+    "Order **ORD-9999** shipped yesterday.",
+    "Order *ORD-9999* was found.",
+    "Order `ORD-9999` is processing.",
+    "Order **ORD-9999** was not found. Order **ORD-9999** is processing.",
 ])
 def test_order_not_found_rejects_wrong_outcomes(missing_order, output):
     scenario, record = missing_order
@@ -180,6 +196,16 @@ def test_order_not_found_rejects_wrong_outcomes(missing_order, output):
     assert not score.functional_pass and not score.overall_pass
     assert "Expected behavior 'order_not_found' was not satisfied" in score.failures
     assert score.tool_pass and score.argument_pass
+
+
+@pytest.mark.parametrize("text", [
+    "ord**-9999**", "**ord**9999", "ord-**9999**", "**ord-9999**suffix",
+    "ord*9999", "**ord-9999*", "* ord-9999 *", "```ord-9999```",
+    "**ord-\n9999**",
+])
+def test_presentation_normalization_preserves_token_boundaries(text):
+    from src.agentguard.behavior_predicates import _normalize
+    assert _normalize(text) == text
 
 
 @pytest.mark.parametrize("forbidden", ["UPS", "FedEx", "shipped"])

@@ -3,12 +3,22 @@ import re
 import unicodedata
 
 
+# Only balanced inline spans at token boundaries; retain malformed markup,
+# code fences, and embedded markers rather than joining unrelated tokens.
+_PRESENTATION = re.compile(
+    r"(?<![\w*`-])(?P<marker>\*\*|\*|`)"
+    r"(?P<content>[^\s*`](?:[^*`\r\n]*[^\s*`])?)"
+    r"(?P=marker)(?![\w*`-])"
+)
+
+
 def _normalize(text):
     # Include the observed UTF-8/Windows-1252 apostrophe mojibake, without
     # attempting a general encoding repair on customer text.
     text = text.replace("\u00e2\u20ac\u2122", "'")
     text = unicodedata.normalize("NFKC", text).casefold()
     text = text.translate(str.maketrans({"\u2019": "'", "\u2018": "'", "\u02bc": "'"}))
+    text = _PRESENTATION.sub(lambda match: match["content"], text)
     for contraction, expanded in (("wasn't", "was not"), ("isn't", "is not"),
                                   ("couldn't", "could not"), ("doesn't", "does not")):
         text = re.sub(r"\b" + contraction + r"\b", expanded, text)
