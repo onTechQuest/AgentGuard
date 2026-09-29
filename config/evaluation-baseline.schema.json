@@ -1,0 +1,482 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "baseline_schema_version",
+    "baseline_id",
+    "suite",
+    "protocol",
+    "promoted_at",
+    "promoted_by_mode",
+    "source_run_id",
+    "source_invocation_id",
+    "manifest_digest",
+    "results_digest",
+    "git_commit",
+    "source_fingerprint",
+    "source_integrity",
+    "lineage_status",
+    "lineage_limitations",
+    "scenario_set_fingerprint",
+    "selected_datasets",
+    "business_fixture_fingerprint",
+    "production_model_identities",
+    "observed_production_model_identities",
+    "judge_model_identities",
+    "fingerprints",
+    "metric_registry_version",
+    "observation_contract_version",
+    "promotion_reason",
+    "promotion_policy",
+    "previous_baseline",
+    "snapshot_path",
+    "snapshot_digest"
+  ],
+  "properties": {
+    "baseline_schema_version": {
+      "const": 1
+    },
+    "baseline_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "suite": {
+      "enum": [
+        "smoke",
+        "full",
+        "performance",
+        "reliability",
+        "structural"
+      ]
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "suite",
+        "repetitions",
+        "execution_ordering",
+        "execution_mode",
+        "hosting_mode",
+        "scenario_populations"
+      ],
+      "properties": {
+        "protocol_version": {
+          "const": 1
+        },
+        "suite": {
+          "enum": [
+            "smoke",
+            "full",
+            "performance",
+            "reliability",
+            "structural"
+          ]
+        },
+        "repetitions": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "execution_ordering": {
+          "enum": [
+            "sequential_dataset_order",
+            "bounded_dispatch_order"
+          ]
+        },
+        "execution_mode": {
+          "enum": [
+            "live",
+            "offline_fixture",
+            "replay"
+          ]
+        },
+        "hosting_mode": {
+          "enum": [
+            "sequential",
+            "bounded",
+            "UNKNOWN"
+          ]
+        },
+        "scenario_populations": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": [
+              "functional",
+              "safety"
+            ]
+          }
+        }
+      }
+    },
+    "promoted_at": {
+      "type": "string"
+    },
+    "promoted_by_mode": {
+      "enum": [
+        "MANUAL",
+        "CI_APPROVED"
+      ]
+    },
+    "source_run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "source_invocation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "results_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "git_commit": {
+      "type": "string"
+    },
+    "source_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_fingerprint",
+        "end_fingerprint",
+        "state",
+        "start_source",
+        "end_source"
+      ],
+      "properties": {
+        "start_fingerprint": {
+          "type": "string"
+        },
+        "end_fingerprint": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "MATCH",
+            "CHANGED",
+            "UNKNOWN"
+          ]
+        },
+        "start_source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "git_commit",
+            "dirty_state",
+            "source_fingerprint"
+          ],
+          "properties": {
+            "git_commit": {
+              "type": "string"
+            },
+            "dirty_state": {
+              "enum": [
+                "CLEAN",
+                "DIRTY",
+                "UNKNOWN"
+              ]
+            },
+            "source_fingerprint": {
+              "$ref": "#/$defs/identity"
+            }
+          }
+        },
+        "end_source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "git_commit",
+            "dirty_state",
+            "source_fingerprint"
+          ],
+          "properties": {
+            "git_commit": {
+              "type": "string"
+            },
+            "dirty_state": {
+              "enum": [
+                "CLEAN",
+                "DIRTY",
+                "UNKNOWN"
+              ]
+            },
+            "source_fingerprint": {
+              "$ref": "#/$defs/identity"
+            }
+          }
+        }
+      }
+    },
+    "lineage_status": {
+      "enum": [
+        "FULL_LINEAGE",
+        "PARTIAL_LINEAGE",
+        "LEGACY_UNVERSIONED"
+      ]
+    },
+    "lineage_limitations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "scenario_set_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "selected_datasets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "functional",
+        "safety"
+      ],
+      "properties": {
+        "functional": {
+          "$ref": "#/$defs/dataset"
+        },
+        "safety": {
+          "$ref": "#/$defs/dataset"
+        }
+      }
+    },
+    "business_fixture_fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "production_model_identities": {
+      "oneOf": [
+        {
+          "const": "UNKNOWN"
+        },
+        {
+          "type": "object",
+          "required": [
+            "router",
+            "recovery",
+            "synthesis"
+          ],
+          "additionalProperties": {
+            "$ref": "#/$defs/model"
+          }
+        }
+      ]
+    },
+    "observed_production_model_identities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "immutable_revision",
+          "request_id",
+          "scenario_id",
+          "repetition"
+        ],
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "immutable_revision": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scenario_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repetition": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "judge_model_identities": {
+      "type": "object",
+      "required": [
+        "answer_relevancy",
+        "correctness",
+        "hallucination",
+        "prompt_injection",
+        "action_claim"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/model"
+      }
+    },
+    "fingerprints": {
+      "type": "object",
+      "required": [
+        "prompt_bundle",
+        "evaluator_prompts",
+        "tool_contract",
+        "runtime_policy",
+        "safety_policy",
+        "evaluation_config",
+        "release_gates",
+        "slo_spec",
+        "business_fixtures"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/identity"
+      }
+    },
+    "metric_registry_version": {
+      "const": 1
+    },
+    "observation_contract_version": {
+      "const": 1
+    },
+    "promotion_reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "promotion_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "require_release_pass",
+        "execution_mode",
+        "hosting_mode",
+        "execution_ordering",
+        "repetitions"
+      ],
+      "properties": {
+        "require_release_pass": {
+          "type": "boolean"
+        },
+        "execution_mode": {
+          "enum": [
+            "live",
+            "offline_fixture",
+            "replay"
+          ]
+        },
+        "hosting_mode": {
+          "enum": [
+            "sequential",
+            "bounded",
+            "UNKNOWN"
+          ]
+        },
+        "execution_ordering": {
+          "enum": [
+            "sequential_dataset_order",
+            "bounded_dispatch_order"
+          ]
+        },
+        "repetitions": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "previous_baseline": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "baseline_id",
+            "source_run_id",
+            "snapshot_digest"
+          ],
+          "properties": {
+            "baseline_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "source_run_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "snapshot_digest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      ]
+    },
+    "snapshot_path": {
+      "type": "string"
+    },
+    "snapshot_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "identity": {
+      "oneOf": [
+        {
+          "const": "UNKNOWN"
+        },
+        {
+          "$ref": "#/$defs/digest"
+        }
+      ]
+    },
+    "model": {
+      "type": "object",
+      "required": [
+        "resolved",
+        "provider",
+        "resolution_provenance"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "dataset": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "count",
+        "fingerprint"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    }
+  }
+}

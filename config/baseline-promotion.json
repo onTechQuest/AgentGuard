@@ -1,0 +1,12 @@
+{
+  "promotion_policy_version": 1,
+  "suites": {
+    "smoke": {
+      "require_release_pass": false,
+      "execution_mode": "live",
+      "hosting_mode": "sequential",
+      "execution_ordering": "sequential_dataset_order",
+      "repetitions": 1
+    }
+  }
+}

@@ -30,6 +30,9 @@ def approved_configuration(options):
 
 
 SOURCE_GROUPS = {
+    "measurement_definition": ("src/agent/telemetry.py", "src/agentguard/evaluation_record.py",
+        "src/agentguard/observations.py", "src/agentguard/metric_registry.py",
+        "src/agentguard/synthesis_qualification.py", "src/agentguard/reliability.py"),
     "prompt_bundle": ("src/agent/capability_router.py", "src/agent/planning_completeness.py", "src/agent/support_agent.py"),
     "evaluator_prompts": ("src/agentguard/semantic_evaluator.py", "src/agentguard/action_claims.py", "src/agentguard/safety_evaluator.py"),
     "tool_contract": ("src/agentguard/tool_policy.py", "src/agent/request_policy.py", "src/agent/data_policy.py", "src/agent/execution_plan.py"),

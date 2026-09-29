@@ -103,10 +103,26 @@
       ]
     },
     "comparison_id": {
-      "type": "null"
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "baseline_id": {
-      "type": "null"
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   }
 }
