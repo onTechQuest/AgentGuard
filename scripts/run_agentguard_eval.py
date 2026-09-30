@@ -21,6 +21,7 @@ from src.agentguard.safety_evaluator import safety_evaluate_record
 from src.agentguard.safety_incidents import SafetyIncidentRecorder
 from src.agentguard.lineage import lineage_entry, start_run
 from src.agentguard.invocation import invocation_entry, setup_failure
+from src.agentguard.correctness_execution import load_correctness_policy
 
 
 GATE_LABELS = {
@@ -133,6 +134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         datasets = load_datasets(PROJECT_ROOT / "evals/datasets", suite=args.suite)
         scenarios, safety_scenarios = datasets.functional, datasets.safety
         config = load_quality_gate_config(PROJECT_ROOT / "config/quality-gates.yaml")
+        execution_policy = load_correctness_policy()
         for scenario in scenarios:
             if not isinstance(scenario["expected_output"], str):
                 raise ValueError("expected_output must be a string")
@@ -144,7 +146,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("Check both datasets, functional expected_output fields, and quality gate YAML.\nFINAL DECISION: FAIL")
         return 1
 
-    lineage = start_run(PROJECT_ROOT, suite=args.suite, functional=scenarios, safety=safety_scenarios)
+    lineage = start_run(PROJECT_ROOT, suite=args.suite, functional=scenarios, safety=safety_scenarios,
+        effective_runtime_policy=execution_policy.snapshot(), execution_profile=execution_policy.profile_identity())
+    lineage.execution_policy = execution_policy
     records_and_scores = []
     semantic_scores = []
     for scenario in scenarios:
@@ -210,7 +214,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     gate = evaluate_quality_gate(scorecard, config, latency_mode="report_only")
     from dataclasses import asdict
-    lineage.aggregate = {"quality_result": asdict(gate)}
+    lineage.aggregate.update(quality_result=asdict(gate))
     lineage.evaluation_complete = True
 
     executed = [*scenarios, *safety_scenarios]

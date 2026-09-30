@@ -52,8 +52,10 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
     terminal_error = None
     planning = None
     production_telemetry = None
+    execution_policy = getattr(run, "execution_policy", None)
     try:
-        result = run_support_agent_detailed(scenario["input"])
+        options = {"runtime_reliability_policy": execution_policy} if execution_policy is not None else {}
+        result = run_support_agent_detailed(scenario["input"], **options)
     except PlanningCompletenessError as error:
         terminal_error = error
         production_telemetry = snapshot(getattr(error, "production_telemetry", None))
@@ -152,5 +154,9 @@ def execute_scenario(scenario: dict) -> EvaluationRecord:
     if terminal_error is not None:
         retain_failure(scenario, terminal_error, record=record)
     if run is not None:
+        if execution_policy is not None:
+            from src.agentguard.correctness_execution import production_slo_observation
+            run.aggregate.setdefault("production_slo_observations", []).append(
+                production_slo_observation(scenario["id"], production_telemetry))
         run.capture(scenario, attempt=lineage_attempt, record=record)
     return record

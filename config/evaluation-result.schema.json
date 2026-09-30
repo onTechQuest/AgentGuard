@@ -1120,6 +1120,48 @@
               "safety"
             ]
           }
+        },
+        "execution_profile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_deadline_ms",
+            "router_allowance_ms",
+            "recovery_reserve_ms",
+            "synthesis_allowance_ms",
+            "recovery_synthesis_reserve_ms",
+            "name",
+            "retries_enabled"
+          ],
+          "properties": {
+            "request_deadline_ms": {
+              "type": "number",
+              "minimum": 0
+            },
+            "router_allowance_ms": {
+              "type": "number",
+              "minimum": 0
+            },
+            "recovery_reserve_ms": {
+              "type": "number",
+              "minimum": 0
+            },
+            "synthesis_allowance_ms": {
+              "type": "number",
+              "minimum": 0
+            },
+            "recovery_synthesis_reserve_ms": {
+              "type": "number",
+              "minimum": 0
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.-]{1,96}$"
+            },
+            "retries_enabled": {
+              "const": false
+            }
+          }
         }
       }
     }

@@ -127,7 +127,7 @@ def runtime_contracts():
 
 
 def build_manifest(root, *, suite, functional, safety, execution_mode="live", evaluation_config=None,
-                   hosting=None, repetitions=1, effective_runtime_policy=None):
+                   hosting=None, repetitions=1, effective_runtime_policy=None, execution_profile=None):
     root = Path(root)
     evaluation_config = approved_configuration(evaluation_config)
     unavailable = []
@@ -193,6 +193,7 @@ def build_manifest(root, *, suite, functional, safety, execution_mode="live", ev
         run_id=uuid4().hex, timestamp=datetime.now(timezone.utc).isoformat(), suite=suite, execution_mode=execution_mode,
         source=source, production_models=observed["models"], judge_models=judges, datasets=datasets,
         protocol=dict(protocol_version=1, suite=suite, repetitions=repetitions,
+            **({"execution_profile": execution_profile} if execution_profile is not None else {}),
             execution_ordering="sequential_dataset_order" if host["mode"] == "sequential" else "bounded_dispatch_order",
             execution_mode=execution_mode, hosting_mode=host["mode"],
             scenario_populations={**{s["id"]: "functional" for s in functional}, **{s["id"]: "safety" for s in safety}}),

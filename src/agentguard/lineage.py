@@ -333,11 +333,11 @@ def lineage_entry(function):
 
 
 def start_run(root, *, suite, functional=(), safety=(), execution_mode="live", evaluation_config=None,
-              hosting=None, repetitions=1, effective_runtime_policy=None):
+              hosting=None, repetitions=1, effective_runtime_policy=None, execution_profile=None):
     from src.agentguard.lineage_adapters import build_manifest
     manifest, rows = build_manifest(root, suite=suite, functional=list(functional), safety=list(safety),
         execution_mode=execution_mode, evaluation_config=evaluation_config, hosting=hosting, repetitions=repetitions,
-        effective_runtime_policy=effective_runtime_policy)
+        effective_runtime_policy=effective_runtime_policy, execution_profile=execution_profile)
     run = RunArtifacts(root, manifest, rows)
     _active.set(run)
     from src.agentguard.invocation import current_invocation
