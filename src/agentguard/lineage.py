@@ -218,7 +218,7 @@ class RunArtifacts:
         self.observations.append(observation)
         return self.executed[-1]
 
-    def capture(self, scenario, *, attempt=None, attempt_index=None, **evidence):
+    def capture(self, scenario, *, attempt=None, attempt_index=None, trace_telemetry=None, **evidence):
         from src.agentguard.observations import update
         if attempt is None:
             if attempt_index is not None:
@@ -231,6 +231,8 @@ class RunArtifacts:
         index = next(i for i, row in enumerate(self.executed) if row is attempt)
         update(self, self.observations[index], scenario=scenario, **evidence)
         self.observations[index].update(completed=attempt["completed"], completion_state="COMPLETED" if attempt["completed"] else "INCOMPLETE")
+        from src.agentguard.observability import capture
+        capture(self, index, evidence.get("record"), trace_telemetry)
 
     def source_integrity(self):
         start = self.manifest.to_dict()["source"]
@@ -260,6 +262,8 @@ class RunArtifacts:
         publish(self.path / "completion.json", dict(completion_schema_version=1, **self.reference,
             state=state, results_digest=fingerprint("evaluation-results", results), source_integrity=integrity,
             timestamp=datetime.now(timezone.utc).isoformat()))
+        from src.agentguard.observability import finish
+        finish(self)
 
 
 def load_run(path):
