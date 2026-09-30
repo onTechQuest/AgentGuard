@@ -228,3 +228,94 @@ def write_comparison(root, result):
         "candidate_run_id", "candidate_invocation_id", "candidate_state", "statuses", "comparability", "authority")}
     publish(directory / "summary.json", summary)
     return directory
+
+
+def compare_model_prompt_runs(root, *, baseline_run_id, candidate_run_id, baseline_label=None, candidate_label=None):
+    """Explicit completed-run view over the same M14 cohort/eligibility engine.
+
+    No baseline promotion, execution, gate evaluation, or threshold changes.
+    """
+    from src.agentguard.baselines import identifier, require
+    from src.agentguard.model_prompt_report import variant, change_type, gate_context, metric_rows, scenario_changes, safe_label
+    runs = []
+    for run_id in (baseline_run_id, candidate_run_id):
+        run = load_run(Path(root) / "reports/evaluations" / identifier(run_id))
+        require(run["manifest"]["run_id"] == run_id, "RUN_ID_MISMATCH")
+        require(run["completion_state"] == "COMPLETED", "RUN_INCOMPLETE")
+        runs.append(run)
+    left, right = [evidence_view(run) for run in runs]
+    old = compare_runs(left, right)
+    unchanged = [r["scenario_id"] for r in old["scenario_diff"] if r["classification"] == "UNCHANGED"]
+    rows, _ = cohort_metrics(left, right, unchanged, False)
+    # Explicit same-benchmark comparisons are stricter than M14 partial cohorts.
+    common_reasons = []
+    if any(r["classification"] != "UNCHANGED" for r in old["scenario_diff"]):
+        common_reasons.append("BENCHMARK_CHANGED")
+    a, b = left["manifest"], right["manifest"]
+    if not known(a["datasets"]) or not known(b["datasets"]): common_reasons.append("DATASET_IDENTITY_UNKNOWN")
+    elif a["datasets"] != b["datasets"]: common_reasons.append("DATASET_CHANGED")
+    # Execution profiles affect operational eligibility; they do not redefine quality.
+    protocols = [{k: v for k, v in m.get("protocol", {}).items() if k != "execution_profile"} for m in (a, b)]
+    if not all(known(p) for p in protocols): common_reasons.append("PROTOCOL_UNKNOWN")
+    elif protocols[0] != protocols[1]: common_reasons.append("EVALUATION_PROTOCOL_CHANGED")
+    for run in runs:
+        integrity = run.get("results", {}).get("source_integrity", {}).get("state", UNKNOWN)
+        if integrity != "MATCH": common_reasons.append("SOURCE_INTEGRITY_" + integrity)
+        if any(not row["completed"] for row in run.get("results", {}).get("executions", [])):
+            common_reasons.append("INCOMPLETE_EXECUTION_EVIDENCE")
+    aliases = {"factual_grounding": "functional_accuracy", "faithfulness": "hallucination"}
+    definitions = {m["metric_id"]: m for m in METRICS}
+    for row in rows:
+        definition = definitions[row["metric_id"]]
+        old_name = aliases.get(row["metric_id"], row["metric_id"])
+        if definition["family"] == "OPERATIONAL":
+            old_name = "tokens" if definition["unit"] == "tokens" else "latency"
+        reason = common_reasons[0] if common_reasons else row["exclusion_reason"]
+        if not reason and old_name not in old["eligible_metrics"]: reason = "M14_METRIC_INELIGIBLE"
+        if reason: row.update(delta=None, eligibility="INELIGIBLE", exclusion_reason=reason)
+    metrics = metric_rows(rows)
+    dimensions = {"quality": "DETERMINISTIC", "semantic": "SEMANTIC", "safety": "SAFETY", "operational": "OPERATIONAL"}
+    comparability = {}
+    for name, family in dimensions.items():
+        selected = [m for m in metrics if definitions[m["metric_name"]]["family"] == family]
+        eligible = sum(m["eligible"] for m in selected)
+        comparability[name] = "NOT_COMPARABLE" if not eligible else "COMPARABLE" if eligible == len(selected) else "PARTIALLY_COMPARABLE"
+    variants = [variant(view) for view in (left, right)]
+    limitations = set(common_reasons) | {m["reason"] for m in metrics if m["reason"]}
+    limitations.update(old["reason_codes"])
+    if any(v["model_revision_available"] is False for v in variants): limitations.add("PRODUCTION_REVISION_UNKNOWN")
+    if a["fingerprints"].get("release_gates") != b["fingerprints"].get("release_gates"):
+        limitations.add("GATE_DEFINITIONS_CHANGED")
+    comparability["limitations"] = sorted(limitations)
+    references = [dict(run_id=r["manifest"]["run_id"], manifest_digest=fingerprint("evaluation-run-manifest", r["manifest"]),
+                       results_digest=fingerprint("evaluation-results", r["results"])) for r in runs]
+    from src.agentguard.metric_registry import REGISTRY_VERSION
+    comparison_id = fingerprint("model-prompt-comparison-v1", dict(references=references, metric_registry_version=REGISTRY_VERSION))[:32]
+    gates = [gate_context(run) for run in runs]
+    return dict(schema_version=1, comparison_id=comparison_id, created_at=now(),
+                baseline_run_id=baseline_run_id, candidate_run_id=candidate_run_id,
+                baseline_label=safe_label(baseline_label, runs), candidate_label=safe_label(candidate_label, runs),
+                variant_identity=dict(baseline=variants[0], candidate=variants[1], change_type=change_type(*variants)),
+                comparability=comparability, metric_comparisons=metrics,
+                scenario_regressions=scenario_changes(left, right, metrics),
+                baseline_gate_decision=gates[0]["decision"], candidate_gate_decision=gates[1]["decision"],
+                gate_context=dict(baseline=gates[0], candidate=gates[1]), lineage_references=references,
+                authority="DESCRIPTIVE_ONLY", performance_qualification=False)
+
+
+def write_model_prompt_comparison(root, result):
+    """Write-once technical comparison; repeat commands reuse its first display labels."""
+    from src.agentguard.model_prompt_report import validate_report
+    from src.agentguard.lineage import read_document
+    validate_report(result)
+    path = Path(root) / "reports/model_prompt_comparisons" / result["comparison_id"] / "comparison.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        previous = read_document(path)
+        validate_report(previous)
+        display = {"created_at", "baseline_label", "candidate_label"}
+        if {k: v for k, v in previous.items() if k not in display} != {k: v for k, v in result.items() if k not in display}:
+            raise ValueError("COMPARISON_ARTIFACT_CONFLICT")
+    else:
+        publish(path, result)
+    return path

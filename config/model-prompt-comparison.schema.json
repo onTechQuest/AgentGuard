@@ -1,0 +1,528 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "comparison_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "baseline_run_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "candidate_run_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "baseline_label": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,79}$"
+    },
+    "candidate_label": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,79}$"
+    },
+    "variant_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/variant"
+        },
+        "candidate": {
+          "$ref": "#/$defs/variant"
+        },
+        "change_type": {
+          "enum": [
+            "MODEL_CHANGE",
+            "PROMPT_CHANGE",
+            "MODEL_AND_PROMPT_CHANGE",
+            "NO_MODEL_PROMPT_CHANGE",
+            "UNKNOWN"
+          ]
+        }
+      },
+      "required": [
+        "baseline",
+        "candidate",
+        "change_type"
+      ]
+    },
+    "comparability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quality": {
+          "enum": [
+            "COMPARABLE",
+            "PARTIALLY_COMPARABLE",
+            "NOT_COMPARABLE"
+          ]
+        },
+        "semantic": {
+          "enum": [
+            "COMPARABLE",
+            "PARTIALLY_COMPARABLE",
+            "NOT_COMPARABLE"
+          ]
+        },
+        "safety": {
+          "enum": [
+            "COMPARABLE",
+            "PARTIALLY_COMPARABLE",
+            "NOT_COMPARABLE"
+          ]
+        },
+        "operational": {
+          "enum": [
+            "COMPARABLE",
+            "PARTIALLY_COMPARABLE",
+            "NOT_COMPARABLE"
+          ]
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          }
+        }
+      },
+      "required": [
+        "quality",
+        "semantic",
+        "safety",
+        "operational",
+        "limitations"
+      ]
+    },
+    "metric_comparisons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "metric_name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          },
+          "metric_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "population": {
+            "enum": [
+              "functional",
+              "safety"
+            ]
+          },
+          "baseline_value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "candidate_value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "absolute_delta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "relative_delta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "direction": {
+            "enum": [
+              "HIGHER_IS_BETTER",
+              "LOWER_IS_BETTER",
+              "INFORMATIONAL",
+              "ZERO_IS_REQUIRED"
+            ]
+          },
+          "unit": {
+            "enum": [
+              "ratio",
+              "ms",
+              "tokens",
+              "attempts"
+            ]
+          },
+          "comparison_status": {
+            "enum": [
+              "IMPROVED",
+              "REGRESSED",
+              "UNCHANGED",
+              "NOT_COMPARABLE",
+              "UNAVAILABLE"
+            ]
+          },
+          "eligible": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "baseline_denominator": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "candidate_denominator": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "metric_name",
+          "metric_version",
+          "population",
+          "baseline_value",
+          "candidate_value",
+          "absolute_delta",
+          "relative_delta",
+          "direction",
+          "unit",
+          "comparison_status",
+          "eligible",
+          "reason",
+          "baseline_denominator",
+          "candidate_denominator"
+        ]
+      }
+    },
+    "scenario_regressions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "new_failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scenario_change"
+          }
+        },
+        "resolved_failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scenario_change"
+          }
+        },
+        "unchanged_failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scenario_change"
+          }
+        },
+        "scope": {
+          "const": "paired_comparable_boolean_checks"
+        },
+        "available": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "new_failures",
+        "resolved_failures",
+        "unchanged_failures",
+        "scope",
+        "available"
+      ]
+    },
+    "baseline_gate_decision": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "UNKNOWN"
+      ]
+    },
+    "candidate_gate_decision": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "UNKNOWN"
+      ]
+    },
+    "gate_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/gate"
+        },
+        "candidate": {
+          "$ref": "#/$defs/gate"
+        }
+      },
+      "required": [
+        "baseline",
+        "candidate"
+      ]
+    },
+    "lineage_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{32}$"
+          },
+          "manifest_digest": {
+            "type": "string",
+            "pattern": "^(?:[a-f0-9]{64}|UNKNOWN)$"
+          },
+          "results_digest": {
+            "type": "string",
+            "pattern": "^(?:[a-f0-9]{64}|UNKNOWN)$"
+          }
+        },
+        "required": [
+          "run_id",
+          "manifest_digest",
+          "results_digest"
+        ]
+      }
+    },
+    "authority": {
+      "const": "DESCRIPTIVE_ONLY"
+    },
+    "performance_qualification": {
+      "const": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "comparison_id",
+    "created_at",
+    "baseline_run_id",
+    "candidate_run_id",
+    "baseline_label",
+    "candidate_label",
+    "variant_identity",
+    "comparability",
+    "metric_comparisons",
+    "scenario_regressions",
+    "baseline_gate_decision",
+    "candidate_gate_decision",
+    "gate_context",
+    "lineage_references",
+    "authority",
+    "performance_qualification"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentguard:model-prompt-comparison:1",
+  "title": "Explicit model/prompt comparison v1",
+  "$defs": {
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resolved": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        },
+        "immutable_revision": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        }
+      },
+      "required": [
+        "resolved",
+        "provider",
+        "immutable_revision"
+      ]
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "production_models": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "router": {
+              "$ref": "#/$defs/model"
+            },
+            "recovery": {
+              "$ref": "#/$defs/model"
+            },
+            "synthesis": {
+              "$ref": "#/$defs/model"
+            }
+          },
+          "required": [
+            "router",
+            "recovery",
+            "synthesis"
+          ]
+        },
+        "observed_models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "model": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+              },
+              "immutable_revision": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+              }
+            },
+            "required": [
+              "model",
+              "immutable_revision"
+            ]
+          }
+        },
+        "prompt_fingerprint": {
+          "type": "string",
+          "pattern": "^(?:[a-f0-9]{64}|UNKNOWN)$"
+        },
+        "model_revision_available": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "production_models",
+        "observed_models",
+        "prompt_fingerprint",
+        "model_revision_available"
+      ]
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNKNOWN"
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "metric": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+              },
+              "actual": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "threshold": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "comparison": {
+                "enum": [
+                  ">=",
+                  "<=",
+                  null
+                ]
+              },
+              "passed": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "enforced": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "metric",
+              "actual",
+              "threshold",
+              "comparison",
+              "passed",
+              "enforced"
+            ]
+          }
+        },
+        "failed_gate_names": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+          }
+        },
+        "checks_available": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "decision",
+        "checks",
+        "failed_gate_names",
+        "checks_available"
+      ]
+    },
+    "scenario_change": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scenario_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        },
+        "repetition": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "metric_name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "repetition",
+        "metric_name"
+      ]
+    }
+  }
+}
