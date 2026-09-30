@@ -1,0 +1,23 @@
+{
+  "completion_schema_version": 1,
+  "manifest_digest": "746db3e61473f06dd4858466fb7096923ef70a2d15e203c82d093a572a3bb387",
+  "results_digest": "0b4a13057aa94a28fdd748ecd868134fc10aa44cf461551a5ab56ea506054e4c",
+  "run_id": "17000000000000000000000000000001",
+  "source_integrity": {
+    "end_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "end_source": {
+      "dirty_state": "CLEAN",
+      "git_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "start_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "start_source": {
+      "dirty_state": "CLEAN",
+      "git_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "state": "MATCH"
+  },
+  "state": "COMPLETED",
+  "timestamp": "2026-01-01T00:00:01+00:00"
+}

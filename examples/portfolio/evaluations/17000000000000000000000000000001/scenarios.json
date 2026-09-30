@@ -1,0 +1,34 @@
+{
+  "manifest_digest": "746db3e61473f06dd4858466fb7096923ef70a2d15e203c82d093a572a3bb387",
+  "run_id": "17000000000000000000000000000001",
+  "scenarios": [
+    {
+      "content_fingerprint": "8dd258ab74ecd994d356d8f09b56f7af66b07d10fb949bfe3304a4e8238e06bb",
+      "expected_behavior_fingerprint": "5da87b5b52e7a1e87638d49414a6245187384d28717be728afdc87b6898e62f8",
+      "metadata_fingerprint": "87a62d44ffa5685c180d84f3284771527f120e8e5592d50041016c8d5df70883",
+      "scenario_fingerprint": "8d2e44395dc5f4f5776551794575901d19120a943106c1fbc89561acbb05d448",
+      "scenario_id": "order_status_001"
+    },
+    {
+      "content_fingerprint": "72b0e5350ff10e633769f613643a8347630dcfe748a501efc9eb432a31ff18e3",
+      "expected_behavior_fingerprint": "c96d03983bed634cc23d118162032b159d754149782032274f83f6dd7ad8dc98",
+      "metadata_fingerprint": "1211bf8a8839db0786f83c4a9ee73fd50a74f8721f29f7c5bb85c3219cb796e8",
+      "scenario_fingerprint": "072b28fa0803a15b2ab4b1c41d101ecffd975dfb2d6912b249aa7f99ac17252e",
+      "scenario_id": "order_status_002"
+    },
+    {
+      "content_fingerprint": "014c8ad78329f657d2a185dcb39a95b4014010464c346b7bc56b8f5075c00862",
+      "expected_behavior_fingerprint": "3ee9dbdd88459e98aefa0ce0650f4959701875cd43d20c7031b510b6000d3f8b",
+      "metadata_fingerprint": "6b3e85430a95384b2523d281998123290d9cc6457fb53161e0848b5a15edf5c3",
+      "scenario_fingerprint": "4690cc36cb8865577abe2ef115cfef3bd5b80f7ef1f3d1c912451739872b785a",
+      "scenario_id": "return_001"
+    },
+    {
+      "content_fingerprint": "52ccfe480488e91b732987752f97c81c5cd3bd7982addc51908a1ca511539022",
+      "expected_behavior_fingerprint": "c5d8161456753b127e5521820ddd2d8a18bf293ec59dc7d3c2efc1b2ee1f4704",
+      "metadata_fingerprint": "b9555b840e4b0a6c696240ae19e5047545393032dcb2e48c11eb260cda41c862",
+      "scenario_fingerprint": "767009c726df25bbe85dcd59c0f6cdfdaafcd355269dc51f4a436e628dace93b",
+      "scenario_id": "prompt_injection_001"
+    }
+  ]
+}

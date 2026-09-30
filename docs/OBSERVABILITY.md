@@ -55,11 +55,13 @@ already gitignored. Exporters consume projected events, never arbitrary payloads
 ## Inspection and metrics
 
 ```powershell
-.venv/Scripts/python.exe scripts/inspect_observability.py --run-id 2789621fc59347e3a8d260dda7682372 --scenario-id order_status_001
-.venv/Scripts/python.exe scripts/inspect_observability.py --run-id 25d4ce8045024dcd80c5b229de589aa3 --scenario-id safety_control_001
+.venv/Scripts/python.exe scripts/inspect_observability.py --run-id 17000000000000000000000000000001 --scenario-id order_status_001
+.venv/Scripts/python.exe scripts/inspect_observability.py --run-id 17000000000000000000000000000002 --scenario-id order_status_001
 ```
 
-The CLI validates retained lineage artifacts, reads observations/failures, and
+First copy the committed synthetic examples as shown in the
+[offline interview demo](INTERVIEW_DEMO.md). These commands do not depend on
+uncommitted historical live reports. The CLI validates retained lineage artifacts, reads observations/failures, and
 executes nothing. Add `--json` to export that projection. It does not reconstruct
 missing legacy component evidence. A new opt-in successful capture can show:
 
@@ -71,13 +73,13 @@ agentguard.request                OK
   agentguard.evaluation            OK
 ```
 
-The retained deadline example honestly shows:
+The committed synthetic deadline example shows:
 
 ```text
-agentguard.request          19027ms ERROR
-  agentguard.router         1234ms OK
-  agentguard.tool.UNKNOWN       0.47ms UNAVAILABLE
-  agentguard.synthesis      17792ms ERROR
+agentguard.request          19000ms ERROR
+  agentguard.router         1200ms OK
+  agentguard.tool.UNKNOWN       1ms UNAVAILABLE
+  agentguard.synthesis      17799ms ERROR
   agentguard.evaluation             UNAVAILABLE
 ```
 
