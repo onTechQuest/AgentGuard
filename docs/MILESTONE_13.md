@@ -118,16 +118,17 @@ optional saved observations; neither triggers evaluations or affects determinist
 enforcement. USD pricing is not required and judge usage never enters production
 consumption. Output is exclusively created under gitignored `reports/release_13e4/`.
 
-One later **live** production-default smoke qualification, explicitly invoked by
-the user (not run as part of 13E.4 implementation):
+Optional **live** production-default smoke qualification, run separately
+from the offline 13E.4 implementation validation:
 
 ```powershell
 python scripts/run_agentguard_eval.py --suite smoke --release-qualification --structural-evidence reports/release_13e4/transport.json
 ```
 
 CI retains its offline test step, which now writes the attributed transport
-artifact, and its existing single smoke evaluation, now with
-`--release-qualification`. The bundle evaluates the 16 promoted gates and existing
+artifact, and its existing single smoke evaluation with `--release-qualification`.
+The current workflow runs that live step only through explicit manual opt-in;
+standard pull-request validation is offline. The bundle evaluates the 16 promoted gates and existing
 quality result together and prints the exact failing/unavailable gate. GitHub
 Actions retains the generated artifacts even on failure. Existing early runtime
 errors still fail immediately. Sequential performance remains its existing

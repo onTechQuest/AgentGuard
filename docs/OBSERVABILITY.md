@@ -60,7 +60,7 @@ already gitignored. Exporters consume projected events, never arbitrary payloads
 ```
 
 First copy the committed synthetic examples as shown in the
-[offline interview demo](INTERVIEW_DEMO.md). These commands do not depend on
+[offline demo](DEMO_GUIDE.md). These commands do not depend on
 uncommitted historical live reports. The CLI validates retained lineage artifacts, reads observations/failures, and
 executes nothing. Add `--json` to export that projection. It does not reconstruct
 missing legacy component evidence. A new opt-in successful capture can show:

@@ -4,6 +4,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      run_live_evaluation:
+        description: "Run credentialed live smoke and release qualification"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -13,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHON_DOTENV_DISABLED: "1"
+      DEEPEVAL_TELEMETRY_OPT_OUT: "YES"
+      OPENAI_AGENTS_DISABLE_TRACING: "1"
 
     steps:
       - name: Check out repository
@@ -35,6 +43,7 @@ jobs:
         run: python -m pytest tests -q
 
       - name: Run AgentGuard live evaluation
+        if: github.event_name == 'workflow_dispatch' && inputs.run_live_evaluation
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python scripts/run_agentguard_eval.py --suite smoke --release-qualification

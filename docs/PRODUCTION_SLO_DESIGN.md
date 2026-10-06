@@ -37,8 +37,8 @@ reported. No judge tokens, USD pricing or pricing API is required.
 | Isolation | Request-ID collisions, mixed tool results, duplicate required operations, contaminated telemetry | Hard invariants: request isolation and exactly-once required execution cannot be averaged away. |
 
 `QUALIFIED` on an invariant records an existing requirement and bounded supporting
-tests; it does not assert universal detection of every semantic violation. We do
-not label new statistical targets QUALIFIED. Known invariant violations produce
+tests; it does not assert universal detection of every semantic violation. New
+statistical targets are not labeled QUALIFIED. Known invariant violations produce
 MISS even if other requests lack evidence. Zero observed violations with missing
 coverage produces INSUFFICIENT_DATA. Concrete natural-language fabrication detection
 is limited by the retained deterministic checks; unassessed classifiers remain unknown.

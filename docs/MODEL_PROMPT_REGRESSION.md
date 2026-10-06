@@ -93,3 +93,16 @@ does not replace experiment-management platforms. Future adapters could publish
 these artifacts into MLflow, Weights & Biases, Braintrust, LangSmith, or enterprise
 CI/CD systems. No integrations, database, dashboard, model registry, prompt
 management, deployment orchestration, or automatic rollback are implemented here.
+
+## Judge variance and statistical limits
+
+`REGRESSED` describes a directional change in eligible recorded values, not a
+statistically established regression. Judge/model variance can cause score noise.
+Paired scenario/repetition cohorts and compatible judge/evaluator identities are
+necessary but do not establish significance.
+
+V1 does not compute judge confidence intervals, noise bands, significance tests,
+effect sizes, repeated-judge uncertainty or judge calibration. Existing quality
+gates enforce configured thresholds without a statistical noise filter; this
+comparison does not alter them. Calibrated repeat judging and significance-aware
+release policy are future evaluation guidance, not current release capabilities.

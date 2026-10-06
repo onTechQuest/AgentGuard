@@ -1,9 +1,25 @@
 # Changelog
 
-## AgentGuard v1.0 — prepared for release review
+## AgentGuard v1.0.1
 
-Core scope is complete and frozen. No release date or Git tag is assigned by this
-document. Human review, commit selection and tag creation remain separate actions.
+Upcoming public-readiness/documentation release; not yet published. Hosted CI
+for the final release commit is not yet complete. No new runtime or evaluation
+capabilities are introduced, and evaluation semantics remain unchanged.
+
+- Professionalized public technical documentation.
+- Clarified architecture responsibilities, evidence flow and qualification limits.
+- Replaced the former presentation guides with `PROJECT_OVERVIEW.md` and
+  `DEMO_GUIDE.md`, with updated references and an offline technical walkthrough.
+- Added the [public release review](docs/PUBLIC_RELEASE_REVIEW.md).
+- Added [Apache License 2.0](LICENSE) licensing.
+- Corrected CI so standard validation is deterministic and credential-free; the
+  existing live evaluation requires explicit manual opt-in. Gate semantics remain
+  unchanged.
+
+## AgentGuard v1.0.0
+
+Previously published implementation, identified by the existing `v1.0.0` tag.
+That tag remains unchanged; the release-readiness changes above belong to v1.0.1.
 
 - **Evaluation:** deterministic functional, tool-selection/argument, operation
   trajectory and grounded-response checks; supplementary semantic judges.
@@ -21,9 +37,10 @@ document. Human review, commit selection and tag creation remain separate action
 - **Model/prompt regression:** completed-run comparisons with technical change
   detection, dimension-specific eligibility, registry deltas and scenario failures.
 - **CI/CD:** GitHub Actions offline tests and credentialed live smoke/structural
-  release qualification; existing gates remain authoritative.
-- **Portfolio:** concise architecture, future enterprise reference design,
-  interview narrative and committed synthetic offline demonstrations.
+  release qualification; existing gates remain authoritative. Manual live opt-in
+  is a v1.0.1 release-readiness correction.
+- **Documentation:** current architecture, future enterprise reference design,
+  technical guides and committed synthetic offline demonstrations.
 
 No packaging/version field existed to align; M17 introduces no new packaging
 mechanism. Schema versions and the production-policy version retain their existing

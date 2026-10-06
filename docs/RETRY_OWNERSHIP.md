@@ -46,7 +46,7 @@ that legacy branch**. Explicit zero is necessary. AgentGuard still passes no
 conversation ID, previous-response ID, session, or automatic response chaining.
 
 There is no remaining enabled SDK/client replay path in the tested first-party
-HTTP configuration. We do not claim control over provider-internal generation,
+HTTP configuration. This qualification does not establish control over provider-internal generation,
 upstream proxy retries, custom model/provider implementations, or caller-installed
 transports that implement their own retries. Switching transport/provider requires
 new verification. SDK tracing exporters are separate from model inference and

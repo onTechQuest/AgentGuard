@@ -1,11 +1,11 @@
 # AgentGuard v1.0 architecture
 
-**Tests expose problems. Architecture determines the fix.** AgentGuard applies
-this principle to a tool-enabled reference agent, keeping evaluation evidence
-separate from runtime behavior and release decisions separate from observations.
+AgentGuard evaluates a tool-enabled reference agent while keeping evaluation
+evidence separate from runtime behavior and release decisions separate from
+observations.
 
 The [README diagram](../README.md#how-it-fits-together) is the overview. The
-[offline demo](INTERVIEW_DEMO.md) makes each boundary inspectable.
+[offline demo](DEMO_GUIDE.md) makes each boundary inspectable.
 
 ## Layers and ownership
 
@@ -41,7 +41,7 @@ detect changes. Digests alone do not authenticate an untrusted artifact source.
 | No model winner | Regression reports show eligible deltas and limitations without ranking models or creating an overall score |
 | Domain predicates are separate | Order-support assertions live alongside reusable record, observation, gate and comparison contracts; the example domain is not the framework's entire architecture |
 
-## Boundaries to explain in an interview
+## Key architectural boundaries
 
 **Deterministic versus semantic.** Deterministic checks verify captured operations,
 arguments and supported facts. Judges evaluate softer output quality. Safety
@@ -59,7 +59,7 @@ retry policy live in runtime modules. Evaluators inspect what occurred. M15/M16
 projection and comparison do not change prompts, operations, models or gates.
 
 **Core versus enterprise systems.** A GitHub Actions workflow already invokes
-offline tests and live smoke/release checks when credentials are supplied.
+offline tests and manually opted-in live smoke/release checks with credentials.
 Observer methods and OTel-compatible mapping exist; vendor exporters, a generic
 plugin configuration system, RAG and MCP do not. See the explicitly
 [future architecture](ENTERPRISE_ARCHITECTURE_V2.md).
@@ -70,3 +70,40 @@ plugin configuration system, RAG and MCP do not. See the explicitly
 - [Production reliability policy](PRODUCTION_RELIABILITY_V1.md)
 - [Evaluation lineage](EVALUATION_LINEAGE.md) and [baseline governance](CONTINUOUS_EVALUATION_BASELINES.md)
 - [Observability](OBSERVABILITY.md) and [model/prompt regression](MODEL_PROMPT_REGRESSION.md)
+
+## Multi-step execution contracts
+
+`src/agent/execution_plan.py` defines `Operation`, `OperationMode`, `ExecutionPlan`,
+`OperationExecution` and `ExecutionTrace`. `build_execution_plan` derives obligations
+from authorized grants. `execute_operation` rejects unauthorized/prohibited work;
+`execute_required` and `ExecutionTrace.model_input` prevent synthesis with unresolved
+required operations. Completed work is reused; failed work is not silently retried.
+The current resolver emits required reads. Optional/prohibited modes are contract
+capabilities, not additional business features.
+
+`evaluation_record.execute_scenario` captures actual runtime trace calls and SDK
+items into `EvaluationRecord`, including partial work and explicit execution failure.
+`scoring.evaluate_record` returns `ScenarioScore` using maximum one-to-one matching
+of expected calls/arguments without requiring order. Missing calls fail tool and
+argument checks. Generic matching permits extra calls/arguments; scenario tool
+allowlists impose configured limits. Safety independently checks required/permitted
+tools and captured facts.
+
+Multi-target work, bounded planning recovery, obligations before synthesis and
+recovery-then-failure behavior have offline coverage in `test_execution_plan`,
+planning-completeness tests and the fault matrix. Stage/order evidence is retained;
+no generic expected ordered sequence metric or reasoning-chain inspection exists.
+See [required execution](required_execution.md) and [fault coverage](FAULT_INJECTION.md).
+
+## Evaluation and decision flow
+
+Execution → `EvaluationRecord` → deterministic `ScenarioScore` and optional
+`SemanticScore`; separate safety scenarios produce `SafetyScore`. The scorecard
+aggregates results for quality gates. Structural qualification combines configuration
+and transport evidence with quality results. Reliability/failure telemetry,
+observations and lineage link outcomes to their sources. Existing-run comparisons
+and observers consume retained evidence; neither changes gate authority.
+
+[Judge/comparison limits](PROJECT_OVERVIEW.md#deterministic-and-probabilistic-evidence)
+and the [external AutoQE boundary](PROJECT_OVERVIEW.md#relationship-to-autoqe)
+apply to this architecture.
